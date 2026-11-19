@@ -33,6 +33,7 @@ It consolidates all three authoritative product specifications:
 | [`docs/01_SYSTEM_ANALYSIS_AND_SSMS_INTEGRATION.md`](docs/01_SYSTEM_ANALYSIS_AND_SSMS_INTEGRATION.md) | Unified analysis of all 3 specs (`PRD v1.0`, `Amharic Plan`, `Handoff PDF`), exact SSMS integration & `SyncChangeFeedService`/JWT findings, legacy cutover strategy, 2-department boundaries, and hosting constraints. |
 | [`docs/02_COMPLETE_FEATURE_CATALOG.md`](docs/02_COMPLETE_FEATURE_CATALOG.md) | Complete itemized catalog covering every feature across **Asset Dept (`FR-01`–`FR-20`)**, **Finance & Related Dept (`Budget`, `Procurement`, `Documents`)**, **Cross-Cutting Security/Biometrics/Offline Sync/Audit/Reports**, **Web Consoles**, and **Flutter Android App**. |
 | [`docs/03_DATABASE_API_AND_MOBILE_BLUEPRINT.md`](docs/03_DATABASE_API_AND_MOBILE_BLUEPRINT.md) | Clean-slate `qa_*` MariaDB schema (fixed/stock/reusable assets, events/stations, member sizing, biometric device keys, offline leases, budgets, reconciliations, procurement, documents), REST `/api/v1/qa/*` contract, Drift/SQLite mobile blueprint, and phased roadmap. |
+| [`docs/04_UI_UX_DESIGN_SYSTEM.md`](docs/04_UI_UX_DESIGN_SYSTEM.md) | Dual Light & Dark Mode visual system matching the FKSS/SSMS admin reference screenshots (surface/semantic tokens, typography, sidebar/KPI/chart layout anatomy, and Flutter Material 3 parity). |
 
 ---
 
