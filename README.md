@@ -4,22 +4,25 @@
 
 *እያንዳንዱ ብር፣ እያንዳንዱ ንብረትና እያንዳንዱ ሰነድ ተመዝግቦ፣ ተጠብቆና ተቆጣጥሮ መቆየት አለበት።*
 
-QIDUS ASSET is a bilingual (**Amharic & English**) organizational operations platform for Orthodox Sunday Schools covering **two distinct departments** and cross-cutting leadership/audit governance, built from zero on a clean **PHP 8 + MariaDB/MySQL + Separated Web UI + Flutter Android** stack.
+QIDUS ASSET is an open-source, bilingual (**Amharic & English**), mobile-first and offline-capable platform for Orthodox Sunday Schools covering **two distinct departments** and cross-cutting leadership/audit governance, built from zero on a plain **PHP 8.2+ + MySQL/MariaDB (Apache/cPanel compatible) + Separated Web UI + Flutter Android** stack.
 
-It is architected for **dual-mode deployment**:
-1. **Standalone Mode:** Runs independently for any Sunday School or organization with its own users, departments, auth, database, web dashboard, and Flutter app.
-2. **SSMS Integrated Mode:** Plugs cleanly into the existing **Sunday School Management System (`fkss-sunday-school-platform`)**—replacing legacy `material_dept` and `finance_dept` implementations from scratch while integrating directly with SSMS `users`, `members`, `notifications`, `activity_logs`, Ethiopian calendar helpers, and **Super Admin / School Admin department switching (`api_impersonate.php`) & executive analytics**.
+It consolidates all three authoritative product specifications:
+1. **`Asset_Management_System_PRD_v1.0.pdf`** (v1.0 baseline — FR-01..FR-20: mobile-first offline-first Asset Management, fixed/stock/reusable member-issued clothing, rapid multi-station event issue & return, QR tags, Android Keystore biometric-protected transaction signing, year workspaces, and replaceable SSMS connector).
+2. **`QIDUS_ASSET_Budget_Document_Procurement_Plan.pdf`** (Amharic Plan — Budget & Finance, Bank Reconciliation, Member Contributions, Procurement with stock/budget gates, Document Vault, immutable no-delete financial ledger, PDF/Excel reports).
+3. **`QIDUS_ASSET_Backend_Team_Handoff.pdf`** (Integration Contract — 6 governance roles, 2-step approval workflow, drawn-signature handovers, notifications, audit logs, and REST API contract).
 
 ---
 
-## Two-Department Structure
+## Two-Department Architecture & Dual Deployment
 
 | # | Department | Amharic | Primary Scope |
 |---|---|---|---|
-| **1** | **Asset Department** (`asset_dept`) | **የንብረት ክፍል** | Fixed & consumable asset registry, QR/barcode resolution, asset requests & 2-step approval (`Department Head -> Deputy Chairperson`), asset handover with drawn signatures & timestamps, stock verification, maintenance/disposal, goods receiving into inventory, physical stock counts. |
-| **2** | **Finance & Related Department** (`finance_dept`) | **የበጀት፣ የፋይናንስ፣ የሰነድና የግዢ ክፍል** | **2A. Budget & Finance:** annual budgets, reallocations, immutable income/expense ledger (adjustment-only corrections), bank & petty-cash accounts, bank reconciliation, monthly member contributions.<br>**2B. Procurement:** requisitions, stock & budget availability gates, supplier quotations & comparison, hierarchical approvals, purchase orders, inspection & asset/doc handoff.<br>**2C. Document Management:** controlled archive (PDF/Word/Excel/images), numbering/folders/search, approval routing, version & access audit trail. |
+| **1** | **Asset Department** (`asset_dept`) | **የንብረት ክፍል** | Fixed assets, consumable stock, & reusable member-issued items (clothing/uniforms by size); QR generation & offline scan resolution; rapid multi-station event issue/return; 2-step asset requests; drawn + biometric Keystore signature handovers; maintenance & repairs; physical inspection campaigns; controlled disposal; year-based workspaces; stock-check & goods-receiving procurement bridges. |
+| **2** | **Finance & Related Department** (`finance_dept`) | **የበጀት፣ የፋይናንስ፣ የሰነድና የግዢ ክፍል** | **2A. Budget & Finance:** fiscal years, annual budgets, amendments/reallocations, append-only income/expense ledger (adjustment/reversal-only corrections), bank & petty cash, bank statement reconciliation, monthly member contributions.<br>**2B. Procurement:** purchase requisitions, Asset stock gate, Finance budget gate, supplier quotations & comparison, hierarchical approvals, Purchase Orders, Goods Receipt handoff.<br>**2C. Document Management:** private file vault (PDF/Word/Excel/images), metadata/numbering/folders, search, approval routing, version & access logs, soft-archive protection. |
 
-Cross-cutting oversight roles (**System Admin**, **Chairperson**, **Deputy Chairperson**, **Auditor**, plus SSMS **Super Admin / School Admin** in integrated mode) operate across both departments with strict server-enforced RBAC.
+### Deployment Modes
+1. **Independent / Standalone Installation:** Each Sunday School installs its own instance on standard Apache/cPanel shared hosting (not multi-tenant SaaS) with its own database, branding, files, and backups, plus a replaceable Member Connector.
+2. **SSMS Integrated Mode (`fkss-sunday-school-platform`):** Retires legacy `material_dept` & `finance_dept` from scratch; connects via `SSMSConnector` for authoritative member identity, JWT/session SSO, incremental `sync_changes` tombstones, `notifications`, `activity_logs`, Ethiopian calendar, and **SSMS Super Admin / School Admin department switching (`api_impersonate.php`) + cross-department analytics**.
 
 ---
 
@@ -27,21 +30,21 @@ Cross-cutting oversight roles (**System Admin**, **Chairperson**, **Deputy Chair
 
 | Document | Contents |
 |---|---|
-| [`docs/01_SYSTEM_ANALYSIS_AND_SSMS_INTEGRATION.md`](docs/01_SYSTEM_ANALYSIS_AND_SSMS_INTEGRATION.md) | Deep synthesis of both specification PDFs, current SSMS architecture analysis, clean-slate cutover plan (retiring legacy material/finance), standalone vs. SSMS integration architecture, Super Admin department impersonation & cross-system reporting. |
-| [`docs/02_COMPLETE_FEATURE_CATALOG.md`](docs/02_COMPLETE_FEATURE_CATALOG.md) | Complete, itemized feature specification across **Asset Dept**, **Finance & Related Dept** (Budget, Procurement, Document Management), **Cross-Cutting Governance/Audit/Notifications/Reporting**, **Web Dashboards**, and **Flutter Mobile App**. |
-| [`docs/03_DATABASE_API_AND_MOBILE_BLUEPRINT.md`](docs/03_DATABASE_API_AND_MOBILE_BLUEPRINT.md) | Normalized MariaDB schema (`qa_*` tables), REST `/api/v1/` integration contract, security & immutability rules, separated Web UI architecture, Flutter offline-first mobile architecture, and 7-phase implementation roadmap. |
+| [`docs/01_SYSTEM_ANALYSIS_AND_SSMS_INTEGRATION.md`](docs/01_SYSTEM_ANALYSIS_AND_SSMS_INTEGRATION.md) | Unified analysis of all 3 specs (`PRD v1.0`, `Amharic Plan`, `Handoff PDF`), exact SSMS integration & `SyncChangeFeedService`/JWT findings, legacy cutover strategy, 2-department boundaries, and hosting constraints. |
+| [`docs/02_COMPLETE_FEATURE_CATALOG.md`](docs/02_COMPLETE_FEATURE_CATALOG.md) | Complete itemized catalog covering every feature across **Asset Dept (`FR-01`–`FR-20`)**, **Finance & Related Dept (`Budget`, `Procurement`, `Documents`)**, **Cross-Cutting Security/Biometrics/Offline Sync/Audit/Reports**, **Web Consoles**, and **Flutter Android App**. |
+| [`docs/03_DATABASE_API_AND_MOBILE_BLUEPRINT.md`](docs/03_DATABASE_API_AND_MOBILE_BLUEPRINT.md) | Clean-slate `qa_*` MariaDB schema (fixed/stock/reusable assets, events/stations, member sizing, biometric device keys, offline leases, budgets, reconciliations, procurement, documents), REST `/api/v1/qa/*` contract, Drift/SQLite mobile blueprint, and phased roadmap. |
 
 ---
 
-## Planned Repository Structure
+## Repository Structure
 
 ```text
 qidus-asset-platform/
 ├── docs/          # System analysis, feature catalog, DB/API/mobile blueprints
-├── database/      # Versioned SQL migrations (qa_* clean-slate schema + seed fixtures)
-├── backend/       # Core services (auth, RBAC, ledger, workflow, audit, notifications)
-├── api/           # REST /api/v1/ router & endpoint handlers (JWT + session bridge)
-├── web/           # Separated HTML/CSS/JS dashboards (Asset Dept, Finance Dept, Exec/Audit)
-├── mobile/        # New bilingual Flutter Android application (offline-first + QR + sync)
-└── tests/         # Static security/contract guards, RBAC workflow tests, API & Flutter tests
+├── database/      # Versioned Phinx/SQL migrations (qa_* clean-slate schema + fixtures)
+├── backend/       # Plain PHP 8.2+ services, connectors (SSMS/standalone), PDF/XLSX/QR
+├── api/           # REST /api/v1/qa/* endpoints (JWT, CSRF, idempotency, biometric verify)
+├── web/           # Separated HTML/CSS/JS administration & reporting consoles
+├── mobile/        # Mobile-first, offline-first Flutter Android app (Drift + Keystore)
+└── tests/         # RBAC, offline conflict, biometric signature, ledger & integration tests
 ```
