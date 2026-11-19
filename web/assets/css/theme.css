@@ -1,0 +1,59 @@
+/* QIDUS ASSET Design System — Light & Dark Mode Tokens
+ * Matches reference screenshots & docs/04_UI_UX_DESIGN_SYSTEM.md
+ */
+
+:root,
+[data-theme="dark"] {
+  --bg-body: #0f111a;
+  --bg-sidebar: rgba(20, 23, 36, 0.94);
+  --bg-card: rgba(26, 30, 46, 0.78);
+  --bg-card-solid: #1a1e2e;
+  --bg-card-hover: rgba(34, 39, 59, 0.96);
+  --bg-topbar: rgba(15, 17, 26, 0.88);
+  --bg-input: rgba(255, 255, 255, 0.05);
+
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(76, 201, 240, 0.45);
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.35);
+
+  /* Brand & Semantic Tokens (overridable by school theme) */
+  --school-primary: #4cc9f0;
+  --school-accent: #7b2cbf;
+  --accent-primary: var(--school-primary);
+  --accent-secondary: var(--school-accent);
+  --accent-success: #10b981;
+  --accent-warning: #f59e0b;
+  --accent-danger: #ef4444;
+  --accent-info: #3b82f6;
+}
+
+[data-theme="light"] {
+  --bg-body: #f1f5f9;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-solid: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --bg-topbar: rgba(255, 255, 255, 0.92);
+  --bg-input: #f8fafc;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+
+  --border-subtle: #e2e8f0;
+  --border-focus: rgba(2, 132, 199, 0.4);
+  --shadow-card: 0 4px 16px rgba(15, 23, 42, 0.06);
+
+  --school-primary: #0284c7;
+  --school-accent: #6d28d9;
+  --accent-primary: var(--school-primary);
+  --accent-secondary: var(--school-accent);
+  --accent-success: #059669;
+  --accent-warning: #d97706;
+  --accent-danger: #dc2626;
+  --accent-info: #2563eb;
+}

@@ -1,0 +1,24 @@
+# QIDUS ASSET Apache Front-Controller & Security Rules
+Options -Indexes
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Block direct HTTP access to internal directories and sensitive files
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Pass Authorization header through Apache/CGI/FPM
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Deny internal folders
+    RewriteRule ^(backend|database|storage|tests|docs|vendor|\.git)/ - [F,L]
+    RewriteRule ^(\.env|composer\.(json|lock)|.*_env\.php)$ - [F,L]
+
+    # Route /api/v1/qa/* cleanly to api/v1/index.php
+    RewriteRule ^api/v1/(.*)$ api/v1/index.php?_route=$1 [QSA,L]
+</IfModule>

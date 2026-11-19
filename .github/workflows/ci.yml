@@ -1,0 +1,83 @@
+name: QIDUS ASSET CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  static-and-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python & Node
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
+
+      - name: JS syntax check
+        run: node --check web/assets/js/theme.js
+
+      - name: Run static, SQL & contract tests
+        run: pytest -v
+
+  php-mariadb-integration:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: ci_root_password
+          MARIADB_DATABASE: qidus_asset_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_mysql, openssl, mbstring, json
+
+      - name: Lint all PHP files
+        run: find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -n1 php -l
+
+      - name: Run migrations & default seeds
+        env:
+          QA_DB_HOST: 127.0.0.1
+          QA_DB_PORT: 3306
+          QA_DB_NAME: qidus_asset_ci
+          QA_DB_USER: root
+          QA_DB_PASS: ci_root_password
+          QA_APP_ENV: testing
+          QA_JWT_SECRET: ci_test_jwt_secret_key_for_verification_only
+          QA_OFFLINE_LEASE_SECRET: ci_test_offline_lease_secret_for_verification_only
+        run: php database/migrate.php
+
+      - name: Run PHP + MariaDB API & Security Smoke Suite
+        env:
+          QA_DB_HOST: 127.0.0.1
+          QA_DB_PORT: 3306
+          QA_DB_NAME: qidus_asset_ci
+          QA_DB_USER: root
+          QA_DB_PASS: ci_root_password
+          QA_APP_ENV: testing
+          QA_JWT_SECRET: ci_test_jwt_secret_key_for_verification_only
+          QA_OFFLINE_LEASE_SECRET: ci_test_offline_lease_secret_for_verification_only
+        run: php tests/smoke_php_mariadb.php
