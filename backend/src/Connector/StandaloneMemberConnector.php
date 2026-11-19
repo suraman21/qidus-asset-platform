@@ -47,8 +47,14 @@ class StandaloneMemberConnector implements MemberConnectorInterface
         }
         $q = trim($query);
         if ($q !== '') {
-            $where[] = '(external_member_id LIKE :q OR member_code LIKE :q OR name_en LIKE :q OR name_am LIKE :q OR section_name LIKE :q OR department_name LIKE :q)';
-            $params[':q'] = '%' . $q . '%';
+            $where[] = '(external_member_id LIKE :q1 OR member_code LIKE :q2 OR name_en LIKE :q3 OR name_am LIKE :q4 OR section_name LIKE :q5 OR department_name LIKE :q6)';
+            $like = '%' . $q . '%';
+            $params[':q1'] = $like;
+            $params[':q2'] = $like;
+            $params[':q3'] = $like;
+            $params[':q4'] = $like;
+            $params[':q5'] = $like;
+            $params[':q6'] = $like;
         }
         $whereSql = implode(' AND ', $where);
 
