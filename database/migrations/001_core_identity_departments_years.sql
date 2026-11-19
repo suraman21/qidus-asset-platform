@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS `qa_schema_migrations` (
 CREATE TABLE IF NOT EXISTS `qa_install_config` (
     `id` TINYINT UNSIGNED NOT NULL PRIMARY KEY DEFAULT 1,
     `school_name_en` VARCHAR(160) NOT NULL DEFAULT 'Sunday School',
-    `school_name_am` VARCHAR(160) NOT NULL DEFAULT 'ሰንበት ትምህርት ቤት',
+    `school_name_am` VARCHAR(160) NOT NULL DEFAULT '',
     `school_short_name` VARCHAR(40) NOT NULL DEFAULT 'QIDUS',
     `logo_path` VARCHAR(255) DEFAULT NULL,
     `integration_mode` ENUM('standalone','ssms_direct','ssms_http') NOT NULL DEFAULT 'standalone',

@@ -68,7 +68,7 @@ jobs:
           QA_APP_ENV: testing
           QA_JWT_SECRET: ci_test_jwt_secret_key_for_verification_only
           QA_OFFLINE_LEASE_SECRET: ci_test_offline_lease_secret_for_verification_only
-        run: php database/migrate.php
+        run: php database/migrate.php --seed
 
       - name: Run PHP + MariaDB API & Security Smoke Suite
         env:
