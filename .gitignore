@@ -1,0 +1,50 @@
+# Environment & secrets
+.env
+.env.*
+*.env.php
+*_env.php
+secrets/
+*.pem
+*.key
+*.jks
+key.properties
+google-services.json
+GoogleService-Info.plist
+
+# Dependencies & build outputs
+vendor/
+node_modules/
+build/
+dist/
+out/
+
+# Flutter / Dart / Android / iOS
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+*.iml
+*.ipr
+*.iws
+.gradle/
+**/android/.gradle/
+**/android/local.properties
+**/android/app/build/
+**/ios/Pods/
+**/ios/Flutter/ephemeral/
+
+# Uploads & runtime logs
+uploads/
+storage/
+logs/
+*.log
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+__pycache__/
+.pytest_cache/
