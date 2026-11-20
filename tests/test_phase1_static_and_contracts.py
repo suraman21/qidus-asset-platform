@@ -31,6 +31,9 @@ def test_required_phase1_files_exist() -> None:
         "backend/src/Connector/SsmsHttpMemberConnector.php",
         "backend/src/Connector/SsmsDirectMemberConnector.php",
         "backend/src/Connector/ConnectorFactory.php",
+        "backend/src/Asset/AssetService.php",
+        "backend/src/Asset/AssetWorkflowService.php",
+        "backend/src/Asset/AssetLifecycleService.php",
         "database/migrations/001_core_identity_departments_years.sql",
         "database/migrations/002_asset_dept_tables.sql",
         "database/migrations/003_finance_procurement_docs_tables.sql",
@@ -40,6 +43,7 @@ def test_required_phase1_files_exist() -> None:
         "api/v1/core/auth_guard.php",
         "api/v1/routes/auth.php",
         "api/v1/routes/core.php",
+        "api/v1/routes/assets.php",
         "web/index.php",
         "web/core/web_auth.php",
         "web/layouts/shell.php",
@@ -186,3 +190,13 @@ def test_rbac_two_departments_and_offline_bounds() -> None:
     offline_block = m.group(1)
     for forbidden_offline in ("system.admin", "system.device_approve", "asset.disposal_approve", "finance.ledger_adjust"):
         assert forbidden_offline not in offline_block
+
+
+def test_no_duplicate_named_pdo_parameters_in_queries() -> None:
+    for path in ROOT.rglob("*.php"):
+        txt = path.read_text(encoding="utf-8")
+        for m in re.finditer(r"->prepare\s*\(\s*(['\"])(.*?)\1\s*\)", txt, re.S):
+            sql = m.group(2)
+            params = re.findall(r":([a-zA-Z0-9_]+)", sql)
+            dups = [x for x in set(params) if params.count(x) > 1]
+            assert not dups, f"Duplicate PDO named params {dups} in {path.relative_to(ROOT)}"

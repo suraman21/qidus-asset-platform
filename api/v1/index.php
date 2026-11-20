@@ -5,6 +5,7 @@ require_once dirname(__DIR__, 2) . '/backend/config/bootstrap.php';
 require_once __DIR__ . '/core/auth_guard.php';
 require_once __DIR__ . '/routes/auth.php';
 require_once __DIR__ . '/routes/core.php';
+require_once __DIR__ . '/routes/assets.php';
 
 use QidusAsset\Support\EthiopianCalendar;
 use QidusAsset\Support\Response;
@@ -19,12 +20,16 @@ if ($route === '') {
 }
 
 $segments = $route === '' ? [] : explode('/', $route);
+if (($segments[0] ?? '') === 'qa') {
+    array_shift($segments);
+    $route = implode('/', $segments);
+}
 
 try {
     if ($route === 'ping' && $method === 'GET') {
         Response::ok([
             'app' => qa_config('app_name'),
-            'version' => '1.0.0-phase1',
+            'version' => '1.0.0-phase2',
             'server_time_utc' => gmdate('c'),
             'ethiopian_today' => EthiopianCalendar::today((string)qa_config('timezone')),
             'integration_mode' => qa_config('integration_mode', 'standalone'),
@@ -38,6 +43,11 @@ try {
     $corePrefixes = ['users', 'departments', 'years', 'devices', 'offline-lease', 'members', 'notifications', 'audit-logs'];
     if (in_array($segments[0] ?? '', $corePrefixes, true)) {
         qaHandleCoreRoute($method, $segments);
+    }
+
+    $assetPrefixes = ['assets', 'asset-categories', 'asset-locations', 'asset-requests', 'handovers', 'events', 'maintenance', 'inspections', 'disposals'];
+    if (in_array($segments[0] ?? '', $assetPrefixes, true)) {
+        qaHandleAssetRoute($method, $segments);
     }
 
     Response::err('Endpoint not found.', 404, 'ROUTE_NOT_FOUND');
