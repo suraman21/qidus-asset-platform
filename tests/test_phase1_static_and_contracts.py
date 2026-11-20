@@ -195,6 +195,7 @@ def test_rbac_two_departments_and_offline_bounds() -> None:
 def test_no_duplicate_named_pdo_parameters_in_queries() -> None:
     for path in ROOT.rglob("*.php"):
         txt = path.read_text(encoding="utf-8")
+        assert "in_array((" not in txt, f"Unsafe ternary/null-coalescing in_array(( in {path.relative_to(ROOT)}"
         for m in re.finditer(r"->prepare\s*\(\s*(['\"])(.*?)\1\s*\)", txt, re.S):
             sql = m.group(2)
             params = re.findall(r":([a-zA-Z0-9_]+)", sql)

@@ -136,8 +136,8 @@ function qaHandleDevicesRoute(string $method, array $sub): never
         $deviceUuid = trim((string)($body['device_uuid'] ?? ''));
         $deviceLabel = trim((string)($body['device_label'] ?? $body['device_name'] ?? 'Android Device'));
         $publicKeyPem = trim((string)($body['public_key_pem'] ?? ''));
-        $algo = in_array(($body['key_algorithm'] ?? 'EC_P256'), ['EC_P256', 'RSA_2048'], true)
-            ? (string)$body['key_algorithm'] : 'EC_P256';
+        $algoRaw = (string)($body['key_algorithm'] ?? 'EC_P256');
+        $algo = in_array($algoRaw, ['EC_P256', 'RSA_2048'], true) ? $algoRaw : 'EC_P256';
         $bioBound = isset($body['biometric_bound']) ? (!empty($body['biometric_bound']) ? 1 : 0) : 1;
 
         if ($deviceUuid === '' || strlen($deviceUuid) > 64 || !preg_match('/^[A-Za-z0-9._:-]+$/', $deviceUuid)) {

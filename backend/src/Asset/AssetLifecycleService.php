@@ -35,8 +35,8 @@ final class AssetLifecycleService
                     :edate, :rdate, :st, :by
                  )"
             );
-            $status = in_array(($input['status'] ?? 'prepared'), ['draft', 'prepared', 'active'], true)
-                ? (string)$input['status'] : 'prepared';
+            $statusRaw = (string)($input['status'] ?? 'prepared');
+            $status = in_array($statusRaw, ['draft', 'prepared', 'active'], true) ? $statusRaw : 'prepared';
 
             $stmt->execute([
                 ':code' => $code,
@@ -242,8 +242,9 @@ final class AssetLifecycleService
                         :bsig, :cstatus, :dev_at
                      )'
                 );
-                $vMethod = in_array(($txItem['verification_method'] ?? 'operator_confirm'), ['drawn_signature', 'biometric_keystore', 'pin_fallback', 'operator_confirm'], true)
-                    ? (string)$txItem['verification_method'] : 'operator_confirm';
+                $vMethodRaw = (string)($txItem['verification_method'] ?? 'operator_confirm');
+                $vMethod = in_array($vMethodRaw, ['drawn_signature', 'biometric_keystore', 'pin_fallback', 'operator_confirm'], true)
+                    ? $vMethodRaw : 'operator_confirm';
                 $ins->execute([
                     ':cuuid' => $clientUuid,
                     ':eid' => $eventId,
@@ -328,12 +329,12 @@ final class AssetLifecycleService
 
         return Connection::transaction(function (PDO $tx) use ($assetId, $issue, $input, $actor): array {
             $tNum = AssetService::nextSequenceCode($tx, 'MNT', 'qa_asset_maintenance', 'ticket_number');
-            $mType = in_array(($input['maintenance_type'] ?? 'corrective'), ['preventive', 'corrective'], true)
-                ? (string)$input['maintenance_type'] : 'corrective';
-            $priority = in_array(($input['priority'] ?? 'normal'), ['low', 'normal', 'high', 'urgent'], true)
-                ? (string)$input['priority'] : 'normal';
-            $status = in_array(($input['status'] ?? 'scheduled'), ['scheduled', 'in_progress'], true)
-                ? (string)$input['status'] : 'scheduled';
+            $mTypeRaw = (string)($input['maintenance_type'] ?? 'corrective');
+            $mType = in_array($mTypeRaw, ['preventive', 'corrective'], true) ? $mTypeRaw : 'corrective';
+            $prioRaw = (string)($input['priority'] ?? 'normal');
+            $priority = in_array($prioRaw, ['low', 'normal', 'high', 'urgent'], true) ? $prioRaw : 'normal';
+            $stRaw = (string)($input['status'] ?? 'scheduled');
+            $status = in_array($stRaw, ['scheduled', 'in_progress'], true) ? $stRaw : 'scheduled';
 
             $tx->prepare(
                 'INSERT INTO qa_asset_maintenance (
@@ -418,8 +419,8 @@ final class AssetLifecycleService
                 $tx->prepare("UPDATE qa_assets SET status = 'maintenance', condition_status = 'under_repair' WHERE id = :aid")
                     ->execute([':aid' => (int)$ticket['asset_id']]);
             } elseif ($newStatus === 'completed') {
-                $cond = in_array(($input['post_condition'] ?? 'good'), ['new', 'good', 'fair', 'poor', 'damaged'], true)
-                    ? (string)$input['post_condition'] : 'good';
+                $condRaw = (string)($input['post_condition'] ?? 'good');
+                $cond = in_array($condRaw, ['new', 'good', 'fair', 'poor', 'damaged'], true) ? $condRaw : 'good';
                 $tx->prepare("UPDATE qa_assets SET status = 'in_stock', condition_status = :cond WHERE id = :aid")
                     ->execute([':cond' => $cond, ':aid' => (int)$ticket['asset_id']]);
             }

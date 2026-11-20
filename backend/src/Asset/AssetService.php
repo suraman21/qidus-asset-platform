@@ -93,6 +93,9 @@ final class AssetService
                 ? json_encode($input['custom_fields'], JSON_UNESCAPED_UNICODE)
                 : null;
 
+            $acqSrcRaw = (string)($input['acquisition_source'] ?? 'purchase');
+            $condRaw = (string)($input['condition_status'] ?? 'good');
+
             $stmt->execute([
                 ':uuid' => $assetUuid,
                 ':code' => $assetCode,
@@ -112,13 +115,11 @@ final class AssetService
                 ':loc_id' => !empty($input['location_id']) ? (int)$input['location_id'] : null,
                 ':dept_id' => !empty($input['department_id']) ? (int)$input['department_id'] : ($actor['department_id'] ?? null),
                 ':cust_id' => !empty($input['custodian_user_id']) ? (int)$input['custodian_user_id'] : null,
-                ':acq_src' => in_array(($input['acquisition_source'] ?? 'purchase'), ['purchase', 'donation', 'transfer', 'opening'], true)
-                    ? (string)$input['acquisition_source'] : 'purchase',
+                ':acq_src' => in_array($acqSrcRaw, ['purchase', 'donation', 'transfer', 'opening'], true) ? $acqSrcRaw : 'purchase',
                 ':acq_date' => !empty($input['acquisition_date']) ? (string)$input['acquisition_date'] : gmdate('Y-m-d'),
                 ':cost' => isset($input['unit_cost']) && $input['unit_cost'] !== '' ? (float)$input['unit_cost'] : null,
                 ':curr' => (string)($input['currency'] ?? 'ETB'),
-                ':cond' => in_array(($input['condition_status'] ?? 'good'), ['new', 'good', 'fair', 'poor', 'damaged', 'under_repair', 'disposed'], true)
-                    ? (string)$input['condition_status'] : 'good',
+                ':cond' => in_array($condRaw, ['new', 'good', 'fair', 'poor', 'damaged', 'under_repair', 'disposed'], true) ? $condRaw : 'good',
                 ':status' => $status,
                 ':created_by' => (int)$actor['uid'],
             ]);

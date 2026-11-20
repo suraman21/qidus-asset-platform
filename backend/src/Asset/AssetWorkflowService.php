@@ -30,8 +30,8 @@ final class AssetWorkflowService
 
         return Connection::transaction(function (PDO $tx) use ($input, $actor, $itemName, $reason, $qty, $deptId): array {
             $reqNum = AssetService::nextSequenceCode($tx, 'AREQ', 'qa_asset_requests', 'request_number');
-            $urgency = in_array(($input['urgency'] ?? 'normal'), ['low', 'normal', 'high', 'urgent'], true)
-                ? (string)$input['urgency'] : 'normal';
+            $urgRaw = (string)($input['urgency'] ?? 'normal');
+            $urgency = in_array($urgRaw, ['low', 'normal', 'high', 'urgent'], true) ? $urgRaw : 'normal';
 
             $stmt = $tx->prepare(
                 "INSERT INTO qa_asset_requests (
@@ -326,6 +326,8 @@ final class AssetWorkflowService
                     :vmethod, :cuuid, :dev_at, :notes
                  )'
             );
+            $condRaw = (string)($input['condition_at_handover'] ?? 'good');
+            $condVal = in_array($condRaw, ['new', 'good', 'fair', 'poor', 'damaged'], true) ? $condRaw : 'good';
             $hStmt->execute([
                 ':hnum' => $hndNum,
                 ':yid' => !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null,
@@ -338,8 +340,7 @@ final class AssetWorkflowService
                 ':mcid' => !empty($input['member_cache_id']) ? (int)$input['member_cache_id'] : null,
                 ':rname' => substr($receiverName, 0, 150),
                 ':qty' => $qty,
-                ':cond' => in_array(($input['condition_at_handover'] ?? 'good'), ['new', 'good', 'fair', 'poor', 'damaged'], true)
-                    ? (string)$input['condition_at_handover'] : 'good',
+                ':cond' => $condVal,
                 ':ret_date' => !empty($input['expected_return_date']) ? (string)$input['expected_return_date'] : null,
                 ':ssig_p' => $senderSigPath,
                 ':rsig_p' => $receiverSigPath,
