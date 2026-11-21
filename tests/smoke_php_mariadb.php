@@ -420,7 +420,7 @@ $ctxAdminGet = stream_context_create([
 ]);
 $healthBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/system/health", false, $ctxAdminGet);
 $healthJson = is_string($healthBody) ? json_decode($healthBody, true) : null;
-assertTrue(is_array($healthJson) && !empty($healthJson['ok']) && !empty($healthJson['data']['db_connected']), 'HTTP GET /api/v1/system/health succeeded (body=' . var_export($healthBody, true) . ')');
+assertTrue(is_array($healthJson) && ($healthJson['status'] ?? '') === 'success' && !empty($healthJson['data']['db_connected']), 'HTTP GET /api/v1/system/health succeeded (body=' . var_export($healthBody, true) . ')');
 
 $ctxGet = stream_context_create([
     'http' => [
@@ -432,11 +432,11 @@ $ctxGet = stream_context_create([
 ]);
 $assetsBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/assets", false, $ctxGet);
 $assetsJson = is_string($assetsBody) ? json_decode($assetsBody, true) : null;
-assertTrue(is_array($assetsJson) && !empty($assetsJson['ok']), 'HTTP GET /api/v1/assets succeeded (body=' . var_export($assetsBody, true) . ')');
+assertTrue(is_array($assetsJson) && ($assetsJson['status'] ?? '') === 'success', 'HTTP GET /api/v1/assets succeeded (body=' . var_export($assetsBody, true) . ')');
 
 $repBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/reports/assets/inventory_register", false, $ctxGet);
 $repJson = is_string($repBody) ? json_decode($repBody, true) : null;
-assertTrue(is_array($repJson) && !empty($repJson['ok']), 'HTTP GET /api/v1/reports/assets/inventory_register succeeded (body=' . var_export($repBody, true) . ')');
+assertTrue(is_array($repJson) && ($repJson['status'] ?? '') === 'success', 'HTTP GET /api/v1/reports/assets/inventory_register succeeded (body=' . var_export($repBody, true) . ')');
 
 proc_terminate($proc);
 proc_close($proc);
