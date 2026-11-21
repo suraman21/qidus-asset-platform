@@ -382,7 +382,7 @@ assertTrue((int)$closedYear['next_year_id'] > 0, 'Year closed and carried forwar
 $reopened = OperationalYearService::reopenYear($pdo, (int)$activeYear['id'], 'CI verification reopen', $adminActor);
 assertTrue($reopened['status'] === 'reopened', 'Year reopened with audit reason');
 $pdo->prepare("UPDATE qa_operational_years SET status = 'active' WHERE id = :id")->execute([':id' => (int)$activeYear['id']]);
-$pdo->prepare("UPDATE qa_operational_years SET status = 'planned' WHERE id = :id")->execute([':id' => (int)$closedYear['next_year_id']]);
+$pdo->prepare("DELETE FROM qa_operational_years WHERE id = :id")->execute([':id' => (int)$closedYear['next_year_id']]);
 
 // 15. Real HTTP Route Dispatch Test via built-in PHP server
 $port = 18089;
