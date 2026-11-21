@@ -16,6 +16,133 @@ final class AssetLifecycleService
      * @param array<string,mixed> $actor
      * @return array<string,mixed>
      */
+    public static function createEventTemplate(PDO $pdo, array $input, array $actor): array
+    {
+        $nameEn = trim((string)($input['name_en'] ?? ''));
+        if ($nameEn === '') {
+            throw new DomainException('name_en is required for event template.');
+        }
+        $items = is_array($input['default_items'] ?? null) ? $input['default_items'] : [];
+        $filter = is_array($input['default_filter'] ?? null) ? $input['default_filter'] : null;
+        $rules = is_array($input['rules'] ?? null) ? $input['rules'] : null;
+
+        $pdo->prepare(
+            'INSERT INTO qa_event_templates (name_en, name_am, default_items_json, default_filter_json, default_return_days, rules_json, created_by)
+             VALUES (:ne, :na, :items, :flt, :days, :rules, :by)'
+        )->execute([
+            ':ne' => $nameEn,
+            ':na' => $input['name_am'] ?? null,
+            ':items' => (string)json_encode($items, JSON_UNESCAPED_UNICODE),
+            ':flt' => $filter !== null ? (string)json_encode($filter, JSON_UNESCAPED_UNICODE) : null,
+            ':days' => max(1, (int)($input['default_return_days'] ?? 7)),
+            ':rules' => $rules !== null ? (string)json_encode($rules, JSON_UNESCAPED_UNICODE) : null,
+            ':by' => (int)$actor['uid'],
+        ]);
+        $id = (int)$pdo->lastInsertId();
+        return ['id' => $id, 'name_en' => $nameEn];
+    }
+
+    /**
+     * Prepare eligible participants for an event from `qa_member_sync_cache` using
+     * department/class/section filters and/or manual IDs (FR-16).
+     *
+     * @param array<string,mixed> $filter
+     * @return array<string,mixed>
+     */
+    public static function prepareEventParticipants(PDO $pdo, int $eventId, array $filter): array
+    {
+        $where = ['is_tombstoned = 0', "source_status = 'active'"];
+        $params = [];
+        if (!empty($filter['department_name'])) {
+            $where[] = 'department_name = :dept';
+            $params[':dept'] = (string)$filter['department_name'];
+        }
+        if (!empty($filter['class_name'])) {
+            $where[] = 'class_name = :cls';
+            $params[':cls'] = (string)$filter['class_name'];
+        }
+        if (!empty($filter['section_name'])) {
+            $where[] = 'section_name = :sec';
+            $params[':sec'] = (string)$filter['section_name'];
+        }
+
+        $sql = 'SELECT id FROM qa_member_sync_cache WHERE ' . implode(' AND ', $where) . ' LIMIT 2000';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $matchedIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+
+        if (!empty($filter['manual_member_cache_ids']) && is_array($filter['manual_member_cache_ids'])) {
+            foreach ($filter['manual_member_cache_ids'] as $mid) {
+                $matchedIds[] = (int)$mid;
+            }
+        }
+        $matchedIds = array_values(array_unique(array_filter($matchedIds, static fn(int $id): bool => $id > 0)));
+
+        $ins = $pdo->prepare(
+            "INSERT IGNORE INTO qa_event_participants (event_id, member_cache_id, eligibility_source)
+             VALUES (:eid, :mcid, :src)"
+        );
+        $added = 0;
+        foreach ($matchedIds as $mcId) {
+            $ins->execute([':eid' => $eventId, ':mcid' => $mcId, ':src' => 'filter']);
+            $added += $ins->rowCount();
+        }
+        return ['event_id' => $eventId, 'participants_prepared' => $added, 'matched_total' => count($matchedIds)];
+    }
+
+    /**
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
+    public static function resolveEventConflict(PDO $pdo, int $eventId, int $txId, string $note, array $actor): array
+    {
+        $stmt = $pdo->prepare(
+            "UPDATE qa_event_transactions
+             SET conflict_status = 'resolved', condition_note = CONCAT(COALESCE(condition_note, ''), ' | Resolved: ', :note)
+             WHERE id = :tid AND event_id = :eid"
+        );
+        $stmt->execute([':note' => substr(trim($note), 0, 120), ':tid' => $txId, ':eid' => $eventId]);
+        if ($stmt->rowCount() === 0) {
+            throw new DomainException('Event transaction not found.');
+        }
+        AuditLogger::log($pdo, [
+            'actor_user_id' => (int)$actor['uid'],
+            'actor_role' => (string)$actor['role'],
+            'action' => 'event_conflict.resolve',
+            'entity_type' => 'event_transaction',
+            'entity_id' => (string)$txId,
+            'after' => ['event_id' => $eventId, 'note' => $note],
+        ]);
+        return ['event_id' => $eventId, 'transaction_id' => $txId, 'conflict_status' => 'resolved'];
+    }
+
+    /**
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
+    public static function closeEvent(PDO $pdo, int $eventId, array $actor): array
+    {
+        $cStmt = $pdo->prepare("SELECT COUNT(*) FROM qa_event_transactions WHERE event_id = :eid AND conflict_status = 'needs_review'");
+        $cStmt->execute([':eid' => $eventId]);
+        if ((int)$cStmt->fetchColumn() > 0) {
+            throw new DomainException('Resolve all event conflicts before closing the event.');
+        }
+        $pdo->prepare("UPDATE qa_events SET status = 'closed' WHERE id = :id")->execute([':id' => $eventId]);
+        AuditLogger::log($pdo, [
+            'actor_user_id' => (int)$actor['uid'],
+            'actor_role' => (string)$actor['role'],
+            'action' => 'event.close',
+            'entity_type' => 'event',
+            'entity_id' => (string)$eventId,
+        ]);
+        return ['id' => $eventId, 'status' => 'closed'];
+    }
+
+    /**
+     * @param array<string,mixed> $input
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
     public static function createEvent(PDO $pdo, array $input, array $actor): array
     {
         $nameEn = trim((string)($input['name_en'] ?? ''));
@@ -533,6 +660,61 @@ final class AssetLifecycleService
     }
 
     /**
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
+    public static function closeInspection(PDO $pdo, int $inspectionId, array $actor): array
+    {
+        $pdo->prepare("UPDATE qa_asset_inspections SET status = 'closed', closed_at = NOW() WHERE id = :id")
+            ->execute([':id' => $inspectionId]);
+        AuditLogger::log($pdo, [
+            'actor_user_id' => (int)$actor['uid'],
+            'actor_role' => (string)$actor['role'],
+            'action' => 'inspection.close',
+            'entity_type' => 'inspection',
+            'entity_id' => (string)$inspectionId,
+        ]);
+        return ['id' => $inspectionId, 'status' => 'closed'];
+    }
+
+    /**
+     * Open a corrective audit finding from an inspection discrepancy (FR-09).
+     *
+     * @param array<string,mixed> $input
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
+    public static function createFindingFromInspection(PDO $pdo, int $inspectionId, array $input, array $actor): array
+    {
+        $title = trim((string)($input['title'] ?? ''));
+        $desc = trim((string)($input['description'] ?? ''));
+        if ($title === '' || $desc === '') {
+            throw new DomainException('title and description are required for audit finding.');
+        }
+        $code = AssetService::nextSequenceCode($pdo, 'FND', 'qa_audit_findings', 'finding_code');
+        $sevRaw = (string)($input['severity'] ?? 'medium');
+        $sev = in_array($sevRaw, ['info', 'low', 'medium', 'high', 'critical'], true) ? $sevRaw : 'medium';
+
+        $pdo->prepare(
+            "INSERT INTO qa_audit_findings (
+                finding_code, auditor_user_id, department_id, severity, title, description,
+                recommendation, linked_entity_type, linked_entity_id, assigned_to_user_id, due_date, status
+             ) VALUES (:code, :uid, 1, :sev, :title, :descr, :rec, 'inspection', :lid, :ass, :due, 'open')"
+        )->execute([
+            ':code' => $code,
+            ':uid' => (int)$actor['uid'],
+            ':sev' => $sev,
+            ':title' => $title,
+            ':descr' => $desc,
+            ':rec' => $input['recommendation'] ?? null,
+            ':lid' => (string)$inspectionId,
+            ':ass' => !empty($input['assigned_to_user_id']) ? (int)$input['assigned_to_user_id'] : null,
+            ':due' => !empty($input['due_date']) ? (string)$input['due_date'] : null,
+        ]);
+        return ['id' => (int)$pdo->lastInsertId(), 'finding_code' => $code, 'status' => 'open'];
+    }
+
+    /**
      * @param array<string,mixed> $input
      * @param array<string,mixed> $actor
      * @return array<string,mixed>
@@ -548,12 +730,48 @@ final class AssetLifecycleService
             throw new DomainException('asset_id, valid reason_type, and reason_detail are required.');
         }
 
+        // Guardrail FR-10: Block disposal if asset is actively assigned or under open maintenance unless authorized override
+        $aStmt = $pdo->prepare('SELECT status FROM qa_assets WHERE id = :id LIMIT 1');
+        $aStmt->execute([':id' => $assetId]);
+        $assetStatus = (string)($aStmt->fetchColumn() ?: '');
+        if ($assetStatus === '') {
+            throw new DomainException('Asset not found.');
+        }
+
+        $mStmt = $pdo->prepare("SELECT COUNT(*) FROM qa_asset_maintenance WHERE asset_id = :id AND status IN ('scheduled','in_progress')");
+        $mStmt->execute([':id' => $assetId]);
+        $openMaint = (int)$mStmt->fetchColumn();
+
+        $hStmt = $pdo->prepare(
+            "SELECT COALESCE(SUM(CASE
+                WHEN handover_type = 'issue' THEN quantity
+                WHEN handover_type IN ('return', 'partial_return') THEN -quantity
+                ELSE 0 END), 0)
+             FROM qa_asset_handovers WHERE asset_id = :id"
+        );
+        $hStmt->execute([':id' => $assetId]);
+        $openIssuedQty = (int)$hStmt->fetchColumn();
+
+        $hasOpenIssues = ($assetStatus === 'assigned' || $openMaint > 0 || $openIssuedQty > 0);
+        $override = !empty($input['override_open_issues']) ? 1 : 0;
+        $overrideReason = trim((string)($input['override_reason'] ?? ''));
+
+        if ($hasOpenIssues) {
+            if ($override !== 1 || $overrideReason === '') {
+                throw new DomainException('Cannot dispose asset with active custody or open maintenance unless override_open_issues=true and override_reason are provided.');
+            }
+            $actorRole = (string)($actor['role'] ?? '');
+            if (!in_array($actorRole, ['system_admin', 'asset_head', 'deputy_chairperson', 'chairperson'], true)) {
+                throw new DomainException('Only asset_head, deputy_chairperson, chairperson, or system_admin may override open disposal blockers.');
+            }
+        }
+
         $num = AssetService::nextSequenceCode($pdo, 'DSP', 'qa_asset_disposals', 'disposal_number');
         $pdo->prepare(
             "INSERT INTO qa_asset_disposals (
                 disposal_number, asset_id, operational_year_id, reason_type, reason_detail,
-                proceeds_amount, recipient_name, status, requested_by
-             ) VALUES (:num, :aid, :yid, :rtype, :rdet, :proc, :rec, 'PENDING_APPROVAL', :by)"
+                proceeds_amount, recipient_name, override_open_issues, override_reason, status, requested_by
+             ) VALUES (:num, :aid, :yid, :rtype, :rdet, :proc, :rec, :ov, :ovr, 'PENDING_APPROVAL', :by)"
         )->execute([
             ':num' => $num,
             ':aid' => $assetId,
@@ -562,6 +780,8 @@ final class AssetLifecycleService
             ':rdet' => $reasonDetail,
             ':proc' => isset($input['proceeds_amount']) && $input['proceeds_amount'] !== '' ? (float)$input['proceeds_amount'] : null,
             ':rec' => $input['recipient_name'] ?? null,
+            ':ov' => $override,
+            ':ovr' => $overrideReason !== '' ? substr($overrideReason, 0, 500) : null,
             ':by' => (int)$actor['uid'],
         ]);
         $id = (int)$pdo->lastInsertId();
@@ -572,7 +792,7 @@ final class AssetLifecycleService
             'action' => 'disposal.request',
             'entity_type' => 'disposal',
             'entity_id' => (string)$id,
-            'after' => ['disposal_number' => $num, 'asset_id' => $assetId, 'reason_type' => $reasonType],
+            'after' => ['disposal_number' => $num, 'asset_id' => $assetId, 'reason_type' => $reasonType, 'override' => $override],
         ]);
 
         return ['id' => $id, 'disposal_number' => $num, 'status' => 'PENDING_APPROVAL'];

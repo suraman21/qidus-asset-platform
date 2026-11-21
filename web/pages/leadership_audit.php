@@ -2,8 +2,40 @@
 declare(strict_types=1);
 
 use QidusAsset\Database\Connection;
+use QidusAsset\Security\AuditLogger;
+use QidusAsset\Security\Rbac;
 
 $pdo = Connection::get();
+$role = (string)$user['role'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && qaVerifyCsrf($_POST['csrf'] ?? null)) {
+    $devAction = (string)($_POST['device_action'] ?? '');
+    $devUuid = trim((string)($_POST['device_uuid'] ?? ''));
+    if ($devUuid !== '' && in_array($devAction, ['approve', 'revoke'], true) && Rbac::can($role, 'system.device_approve')) {
+        if ($devAction === 'approve') {
+            $pdo->prepare("UPDATE qa_device_keys SET status = 'active', approved_by = :by, approved_at = NOW(), revoked_at = NULL WHERE device_uuid = :du")
+                ->execute([':by' => (int)$user['uid'], ':du' => $devUuid]);
+        } else {
+            $pdo->prepare("UPDATE qa_device_keys SET status = 'revoked', revoked_by = :by, revoked_at = NOW() WHERE device_uuid = :du")
+                ->execute([':by' => (int)$user['uid'], ':du' => $devUuid]);
+            $pdo->prepare("UPDATE qa_offline_leases SET revoked_at = NOW() WHERE device_uuid = :du AND revoked_at IS NULL")
+                ->execute([':du' => $devUuid]);
+        }
+        AuditLogger::log($pdo, [
+            'actor_user_id' => (int)$user['uid'],
+            'actor_role' => $role,
+            'device_uuid' => $devUuid,
+            'action' => 'device.' . $devAction,
+            'entity_type' => 'device',
+            'entity_id' => $devUuid,
+        ]);
+    }
+}
+
+$devices = $pdo->query(
+    "SELECT d.device_uuid, d.device_label, d.key_algorithm, d.status, u.username, d.created_at
+     FROM qa_device_keys d JOIN qa_users u ON u.id = d.user_id ORDER BY d.id DESC LIMIT 20"
+)->fetchAll();
 
 $deptCount = (int)$pdo->query("SELECT COUNT(*) FROM qa_departments WHERE is_active = 1")->fetchColumn();
 $yearCount = (int)$pdo->query("SELECT COUNT(*) FROM qa_operational_years")->fetchColumn();
@@ -18,7 +50,7 @@ $auditRows = $pdo->query(
 )->fetchAll();
 
 qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static function () use (
-    $deptCount, $yearCount, $userCount, $deviceCount, $pendingDevices, $memberCount, $years, $auditRows
+    $role, $deptCount, $yearCount, $userCount, $deviceCount, $pendingDevices, $memberCount, $years, $auditRows, $devices
 ): void {
     ?>
     <section class="qa-kpi-grid" aria-label="Platform Governance KPIs">
@@ -79,9 +111,46 @@ qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static 
 
       <div class="qa-card">
         <div class="qa-card-header">
-          <h2 class="qa-card-title">Recent Audit Trail</h2>
-          <span class="qa-badge">Immutable</span>
+          <h2 class="qa-card-title">Registered Android Devices (Keystore)</h2>
+          <span class="qa-badge info">FR-19</span>
         </div>
+        <?php if ($devices === []): ?>
+          <p style="color:var(--text-secondary);margin:0;">No mobile device keys enrolled yet.</p>
+        <?php else: ?>
+          <div class="qa-table-wrap">
+            <table class="qa-table">
+              <thead><tr><th>Device</th><th>User</th><th>Alg</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody>
+                <?php foreach ($devices as $dev): ?>
+                  <tr>
+                    <td><code><?= e($dev['device_uuid']) ?></code> (<?= e($dev['device_label']) ?>)</td>
+                    <td><?= e($dev['username']) ?></td>
+                    <td><?= e($dev['key_algorithm']) ?></td>
+                    <td><span class="qa-badge <?= $dev['status'] === 'active' ? 'success' : ($dev['status'] === 'revoked' ? 'danger' : 'warning') ?>"><?= e($dev['status']) ?></span></td>
+                    <td>
+                      <?php if (Rbac::can($role, 'system.device_approve')): ?>
+                        <form method="post" style="display:inline-flex;gap:4px;">
+                          <input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>">
+                          <input type="hidden" name="device_uuid" value="<?= e($dev['device_uuid']) ?>">
+                          <?php if ($dev['status'] !== 'active'): ?><button name="device_action" value="approve" class="qa-btn" style="padding:4px 8px;">Approve</button><?php endif; ?>
+                          <?php if ($dev['status'] !== 'revoked'): ?><button name="device_action" value="revoke" class="qa-btn" style="padding:4px 8px;">Revoke</button><?php endif; ?>
+                        </form>
+                      <?php endif; ?>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php endif; ?>
+      </div>
+    </section>
+
+    <section class="qa-card" style="margin-top:18px;">
+      <div class="qa-card-header">
+        <h2 class="qa-card-title">Recent Audit Trail</h2>
+        <span class="qa-badge">Immutable</span>
+      </div>
         <?php if ($auditRows === []): ?>
           <p style="color:var(--text-secondary);margin:0;">No audit events recorded yet.</p>
         <?php else: ?>
@@ -102,7 +171,6 @@ qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static 
             </table>
           </div>
         <?php endif; ?>
-      </div>
     </section>
     <?php
 });

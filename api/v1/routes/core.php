@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+use QidusAsset\Asset\AssetService;
+use QidusAsset\Asset\OperationalYearService;
 use QidusAsset\Connector\ConnectorFactory;
 use QidusAsset\Database\Connection;
 use QidusAsset\Security\AuditLogger;
@@ -72,6 +74,33 @@ function qaHandleCoreRoute(string $method, array $segments): never
             ]);
             Response::ok(['id' => $id, 'ec_year' => $ecYear], 201);
         }
+        if ($method === 'POST' && count($segments) === 3 && ctype_digit($segments[1]) && $segments[2] === 'close') {
+            $auth = qaRequireAuth('system.year_manage');
+            $body = Response::jsonBody();
+            $nextEc = !empty($body['next_ec_year']) ? (int)$body['next_ec_year'] : null;
+            Response::ok(OperationalYearService::closeYear(Connection::get(), (int)$segments[1], $nextEc, $auth));
+        }
+        if ($method === 'POST' && count($segments) === 3 && ctype_digit($segments[1]) && $segments[2] === 'reopen') {
+            $auth = qaRequireAuth('system.year_manage');
+            $body = Response::jsonBody();
+            Response::ok(OperationalYearService::reopenYear(Connection::get(), (int)$segments[1], (string)($body['reason'] ?? ''), $auth));
+        }
+    }
+
+    if ($root === 'system' && ($segments[1] ?? '') === 'health' && $method === 'GET') {
+        qaRequireAuth('system.admin');
+        $pdo = Connection::get();
+        $migrationsApplied = (int)$pdo->query('SELECT COUNT(*) FROM qa_schema_migrations')->fetchColumn();
+        $vaultDir = rtrim((string)qa_config('storage_path', QA_ROOT . '/storage/vault'), '/');
+        Response::ok([
+            'php_version' => PHP_VERSION,
+            'db_connected' => true,
+            'migrations_applied' => $migrationsApplied,
+            'integration_mode' => qa_config('integration_mode', 'standalone'),
+            'vault_path' => $vaultDir,
+            'vault_writable' => is_dir($vaultDir) ? is_writable($vaultDir) : is_writable(dirname($vaultDir)),
+            'vendor_autoload' => is_file(QA_ROOT . '/vendor/autoload.php'),
+        ]);
     }
 
     if ($root === 'devices') {
@@ -322,6 +351,16 @@ function qaHandleMembersRoute(string $method, array $sub): never
             Response::err('Member not found.', 404, 'MEMBER_NOT_FOUND');
         }
         Response::ok(['member' => $member]);
+    }
+
+    if ($method === 'GET' && count($sub) === 2 && $sub[1] === 'assets') {
+        Response::ok(AssetService::getMemberAssetSummary($pdo, $sub[0]));
+    }
+
+    if (in_array($method, ['PUT', 'POST'], true) && count($sub) === 2 && $sub[1] === 'asset-profile') {
+        $auth = qaRequireAuth('asset.write');
+        $body = Response::jsonBody();
+        Response::ok(AssetService::upsertMemberAssetProfile($pdo, $sub[0], $body, $auth));
     }
 
     Response::err('Members route not found.', 404, 'ROUTE_NOT_FOUND');

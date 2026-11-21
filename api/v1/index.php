@@ -40,12 +40,12 @@ try {
         qaHandleAuthRoute($method, array_slice($segments, 1));
     }
 
-    $corePrefixes = ['users', 'departments', 'years', 'devices', 'offline-lease', 'members', 'notifications', 'audit-logs'];
+    $corePrefixes = ['users', 'departments', 'years', 'devices', 'offline-lease', 'members', 'notifications', 'audit-logs', 'system'];
     if (in_array($segments[0] ?? '', $corePrefixes, true)) {
         qaHandleCoreRoute($method, $segments);
     }
 
-    $assetPrefixes = ['assets', 'asset-categories', 'asset-locations', 'asset-requests', 'handovers', 'events', 'maintenance', 'inspections', 'disposals'];
+    $assetPrefixes = ['assets', 'asset-categories', 'asset-locations', 'attachments', 'asset-requests', 'handovers', 'event-templates', 'events', 'maintenance', 'inspections', 'disposals', 'reports'];
     if (in_array($segments[0] ?? '', $assetPrefixes, true)) {
         qaHandleAssetRoute($method, $segments);
     }

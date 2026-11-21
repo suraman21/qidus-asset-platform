@@ -2,20 +2,24 @@
 declare(strict_types=1);
 
 /**
- * End-to-end PHP 8.2 + MariaDB integration smoke test executed in CI (Phases 1 & 2).
+ * End-to-end PHP 8.2 + MariaDB integration smoke test executed in CI (Phases 1 & 2 / Step A).
  */
 
 require_once dirname(__DIR__) . '/backend/config/bootstrap.php';
 
+use QidusAsset\Asset\AssetAttachmentService;
 use QidusAsset\Asset\AssetLifecycleService;
+use QidusAsset\Asset\AssetReportService;
 use QidusAsset\Asset\AssetService;
 use QidusAsset\Asset\AssetWorkflowService;
+use QidusAsset\Asset\OperationalYearService;
 use QidusAsset\Connector\ConnectorFactory;
 use QidusAsset\Database\Connection;
 use QidusAsset\Security\BiometricVerifier;
 use QidusAsset\Security\JwtService;
 use QidusAsset\Security\PasswordService;
 use QidusAsset\Security\Rbac;
+use QidusAsset\Support\QrLabelService;
 
 $pdo = Connection::get();
 
@@ -31,8 +35,8 @@ function assertTrue(bool $cond, string $msg): void
 $deptCount = (int)$pdo->query('SELECT COUNT(*) FROM qa_departments')->fetchColumn();
 assertTrue($deptCount >= 2, 'Expected at least 2 seeded departments');
 
-$yearCount = (int)$pdo->query("SELECT COUNT(*) FROM qa_operational_years WHERE status = 'active'")->fetchColumn();
-assertTrue($yearCount >= 1, 'Expected active operational year');
+$activeYear = OperationalYearService::getActiveYear($pdo);
+assertTrue((int)$activeYear['id'] > 0 && $activeYear['status'] === 'active', 'Expected active operational year');
 
 // 2. Create temporary test users & verify Password + JWT + Offline Lease + Connector
 $sfx = bin2hex(random_bytes(3));
@@ -50,13 +54,13 @@ $ins->execute([':u' => $adminUser, ':n' => 'CI Admin', ':r' => 'system_admin', '
 $adminId = (int)$pdo->lastInsertId();
 
 $ins->execute([':u' => $officerUser, ':n' => 'CI Officer', ':r' => 'asset_officer', ':d' => 1, ':p' => $passHash]);
-$officerId = (int)$pdo->lastInsertId();
+$officerId = (int)$ins->lastInsertId();
 
 $ins->execute([':u' => $headUser, ':n' => 'CI Asset Head', ':r' => 'asset_head', ':d' => 1, ':p' => $passHash]);
-$headId = (int)$pdo->lastInsertId();
+$headId = (int)$ins->lastInsertId();
 
 $ins->execute([':u' => $deputyUser, ':n' => 'CI Deputy', ':r' => 'deputy_chairperson', ':d' => 1, ':p' => $passHash]);
-$deputyId = (int)$pdo->lastInsertId();
+$deputyId = (int)$ins->lastInsertId();
 
 assertTrue(PasswordService::verify('TestPass#2026!', $passHash), 'Password verification works');
 
@@ -92,16 +96,26 @@ $pdo->prepare(
      VALUES (:u, :d, 'CI Pixel', 'EC_P256', :pk, 1, 'active', :ab, NOW())"
 )->execute([':u' => $officerId, ':d' => $deviceUuid, ':pk' => $pubPem, ':ab' => $adminId]);
 
-// 5. Member Connector upsert & tombstone sync
+// 5. Member Connector upsert & tombstone sync + Member Sizing Profile
 $connector = ConnectorFactory::memberConnector($pdo);
 $connector->upsertBatch([
-    ['external_member_id' => 'ci_stu_1', 'name_en' => 'Abebe Kebede', 'section_name' => 'Grade 5', 'is_tombstoned' => false],
-    ['external_member_id' => 'ci_stu_2', 'name_en' => 'Deleted Student', 'is_tombstoned' => true],
+    ['external_member_id' => 'ci_stu_1_' . $sfx, 'name_en' => 'Abebe Kebede', 'section_name' => 'Grade 5', 'is_tombstoned' => false],
+    ['external_member_id' => 'ci_stu_2_' . $sfx, 'name_en' => 'Deleted Student', 'is_tombstoned' => true],
 ], 'standalone');
+$extStu1 = 'ci_stu_1_' . $sfx;
+$extStu2 = 'ci_stu_2_' . $sfx;
 $search = $connector->search('Abebe');
 assertTrue($search['total'] >= 1, 'Member search returns active record');
 $sync = $connector->syncChanges(null, 50);
-assertTrue(in_array('ci_stu_2', $sync['tombstones'], true), 'Tombstone propagated in incremental sync');
+assertTrue(in_array($extStu2, $sync['tombstones'], true), 'Tombstone propagated in incremental sync');
+
+$adminActor = ['uid' => $adminId, 'role' => 'system_admin', 'department_id' => 1, 'device_uuid' => null];
+$officerActor = ['uid' => $officerId, 'role' => 'asset_officer', 'department_id' => 1, 'device_uuid' => $deviceUuid];
+$headActor = ['uid' => $headId, 'role' => 'asset_head', 'department_id' => 1, 'device_uuid' => null];
+$deputyActor = ['uid' => $deputyId, 'role' => 'deputy_chairperson', 'department_id' => 1, 'device_uuid' => null];
+
+$prof = AssetService::upsertMemberAssetProfile($pdo, $extStu1, ['clothing_size' => 'M', 'shoe_size' => '41'], $officerActor);
+assertTrue($prof['clothing_size'] === 'M', 'Member clothing size profile saved');
 
 // 6. RBAC separation of duty check
 $selfApprovalRejected = false;
@@ -113,17 +127,23 @@ try {
 assertTrue($selfApprovalRejected, 'Self-approval blocked for non-admin');
 
 // ============================================================================
-// PHASE 2: Department 1 (Asset Dept) Full Integration Verification
+// PHASE 2 / STEP A: Complete Department 1 (Asset Dept) Verification
 // ============================================================================
-$officerActor = ['uid' => $officerId, 'role' => 'asset_officer', 'department_id' => 1, 'device_uuid' => $deviceUuid];
-$headActor = ['uid' => $headId, 'role' => 'asset_head', 'department_id' => 1, 'device_uuid' => null];
-$deputyActor = ['uid' => $deputyId, 'role' => 'deputy_chairperson', 'department_id' => 1, 'device_uuid' => null];
+$newCat = AssetService::createCategory($pdo, [
+    'code' => 'CAT_' . strtoupper($sfx),
+    'name_en' => 'Liturgical Robes',
+    'tracking_mode' => 'reusable_member',
+    'default_min_qty' => 2,
+], $headActor);
+$newLoc = AssetService::createLocation($pdo, [
+    'code' => 'LOC_' . strtoupper($sfx),
+    'name_en' => 'Choir Annex',
+], $headActor);
+$catId = (int)$newCat['id'];
+$locId = (int)$newLoc['id'];
+assertTrue($catId > 0 && $locId > 0, 'Category and location created');
 
-$catId = (int)$pdo->query("SELECT id FROM qa_asset_categories WHERE code = 'UNIFORMS' LIMIT 1")->fetchColumn();
-$locId = (int)$pdo->query("SELECT id FROM qa_asset_locations WHERE code = 'MAIN_STORE' LIMIT 1")->fetchColumn();
-assertTrue($catId > 0 && $locId > 0, 'Seeded category and location present');
-
-// 7. Create reusable asset with size variants + QR resolution + QR reprint
+// 7. Create reusable asset + PATCH updateAsset + QR SVG + QR Sheet + QR reprint
 $uniform = AssetService::createAsset($pdo, [
     'name_en' => 'Choir Tunic Set',
     'category_id' => $catId,
@@ -140,19 +160,29 @@ $oldQr = (string)$uniform['qr_token'];
 assertTrue(count($uniform['variants']) === 2, 'Asset created with 2 size variants');
 assertTrue(AssetService::resolveByQrToken($pdo, $oldQr)['id'] === $assetId, 'Initial QR resolves asset');
 
+$updated = AssetService::updateAsset($pdo, $assetId, ['name_am' => 'የመዘምራን ልብስ', 'min_quantity' => 16], $officerActor);
+assertTrue((int)$updated['min_quantity'] === 16, 'Asset metadata updated via updateAsset');
+
+$svg = QrLabelService::renderSvg((string)$updated['qr_token'], (string)$updated['asset_code']);
+assertTrue(str_contains($svg, '<svg'), 'QR SVG rendered');
+$sheetHtml = QrLabelService::renderLabelSheetHtml([$updated], 'CI Sunday School');
+assertTrue(str_contains($sheetHtml, (string)$updated['asset_code']), 'Printable A4 QR label sheet rendered');
+
 $reprint = AssetService::reprintQrToken($pdo, $assetId, 'Damaged label', $officerActor);
 $newQr = (string)$reprint['qr_token'];
 assertTrue($newQr !== $oldQr, 'QR reprint produces new token');
 assertTrue(AssetService::resolveByQrToken($pdo, $oldQr) === null, 'Revoked QR token no longer resolves');
 assertTrue(AssetService::resolveByQrToken($pdo, $newQr)['id'] === $assetId, 'New QR token resolves asset');
 
-// 8. Stock movement & negative balance guard
+// 8. Stock movement -> triggers low_stock notification + negative balance guard
 $mov = AssetService::recordMovement($pdo, $assetId, [
     'movement_type' => 'outgoing',
-    'quantity_delta' => -3,
+    'quantity_delta' => -5,
     'reason' => 'Issued to rehearsal hall',
 ], $officerActor);
-assertTrue($mov['balance_after'] === 17, 'Stock decremented to 17');
+assertTrue($mov['balance_after'] === 15, 'Stock decremented to 15 (<= min_quantity 16)');
+$lowAlerts = (int)$pdo->query("SELECT COUNT(*) FROM qa_notifications WHERE notification_type = 'low_stock' AND entity_id = '{$assetId}'")->fetchColumn();
+assertTrue($lowAlerts >= 1, 'Low-stock notification emitted automatically');
 
 $negBlocked = false;
 try {
@@ -166,7 +196,37 @@ try {
 }
 assertTrue($negBlocked, 'Negative stock balance blocked');
 
-// 9. 2-Step Asset Request + Self-Approval Guard + Keystore-Signed Handover + Idempotency Replay
+// 9. Private Attachment upload + magic-byte check + audited download
+$tmpPng = tempnam(sys_get_temp_dir(), 'qapng_');
+file_put_contents((string)$tmpPng, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='));
+$att = AssetAttachmentService::upload($pdo, $assetId, [
+    'name' => 'photo.png',
+    'tmp_name' => (string)$tmpPng,
+    'size' => filesize((string)$tmpPng),
+    'error' => UPLOAD_ERR_OK,
+], $officerActor);
+assertTrue((int)$att['document_id'] > 0 && $att['mime_type'] === 'image/png', 'Asset attachment uploaded via magic-byte validation');
+$dl = AssetAttachmentService::download($pdo, (int)$att['document_id'], $officerActor);
+assertTrue($dl['mime_type'] === 'image/png' && file_exists($dl['path']), 'Audited attachment download resolves file');
+@unlink((string)$tmpPng);
+
+$fakePng = tempnam(sys_get_temp_dir(), 'qabad_');
+file_put_contents((string)$fakePng, '<?php echo "hacked";');
+$badBlocked = false;
+try {
+    AssetAttachmentService::upload($pdo, $assetId, [
+        'name' => 'shell.png',
+        'tmp_name' => (string)$fakePng,
+        'size' => filesize((string)$fakePng),
+        'error' => UPLOAD_ERR_OK,
+    ], $officerActor);
+} catch (\DomainException $e) {
+    $badBlocked = true;
+}
+assertTrue($badBlocked, 'Disguised PHP file rejected by finfo MIME magic-byte check');
+@unlink((string)$fakePng);
+
+// 10. 2-Step Asset Request + Return for Correction + Resubmit + Self-Approval Guard + Keystore-Signed Handover + Member Summary
 $req = AssetWorkflowService::createRequest($pdo, [
     'asset_id' => $assetId,
     'requested_item_name' => 'Choir Tunic Set',
@@ -174,6 +234,11 @@ $req = AssetWorkflowService::createRequest($pdo, [
     'reason' => 'Sunday liturgy choir',
 ], $officerActor);
 $reqId = (int)$req['id'];
+
+$ret = AssetWorkflowService::departmentHeadDecision($pdo, $reqId, 'return_for_correction', 'Add event date', $headActor);
+assertTrue($ret['status'] === 'RETURNED_FOR_CORRECTION', 'Request returned for correction');
+$resub = AssetWorkflowService::resubmitRequest($pdo, $reqId, ['reason' => 'Sunday Meskel Liturgy'], $officerActor);
+assertTrue($resub['status'] === 'PENDING_DEPARTMENT_HEAD', 'Request resubmitted cleanly');
 
 $reqSelfBlocked = false;
 try {
@@ -185,7 +250,6 @@ assertTrue($reqSelfBlocked, 'Requester self-approval blocked');
 
 $step1 = AssetWorkflowService::departmentHeadDecision($pdo, $reqId, 'approve', 'Approved by head', $headActor);
 assertTrue($step1['status'] === 'PENDING_DEPUTY_CHAIRPERSON', 'Step 1 moves request to Deputy Chairperson');
-
 $step2 = AssetWorkflowService::deputyDecision($pdo, $reqId, 'approve', 'Approved by deputy', $deputyActor);
 assertTrue($step2['status'] === 'APPROVED', 'Step 2 approves request');
 
@@ -197,8 +261,10 @@ $hnd = AssetWorkflowService::createHandover($pdo, [
     'asset_id' => $assetId,
     'asset_request_id' => $reqId,
     'handover_type' => 'issue',
+    'receiver_member_external_id' => $extStu1,
     'receiver_display_name' => 'Abebe Kebede',
     'quantity' => 2,
+    'expected_return_date' => '2020-01-01',
     'verification_method' => 'biometric_keystore',
     'device_uuid' => $deviceUuid,
     'canonical_payload' => $handoverPayload,
@@ -223,24 +289,41 @@ assertTrue(!empty($hndReplay['idempotent_replay']) && $hndReplay['id'] === $hnd[
 $reqStatusAfter = $pdo->query("SELECT status FROM qa_asset_requests WHERE id = {$reqId}")->fetchColumn();
 assertTrue($reqStatusAfter === 'FULFILLED', 'Linked request marked FULFILLED after handover');
 
-// 10. Multi-station event + offline batch sync + conflict flagging + reconciliation
+$memSummary = AssetService::getMemberAssetSummary($pdo, $extStu1);
+assertTrue(count($memSummary['active_holdings']) >= 1, 'Member active holdings tracked');
+$overdueList = AssetService::listOverdueHandovers($pdo);
+assertTrue(count($overdueList) >= 1, 'Overdue handover detected');
+
+// 11. Event Template + Participant Filter + Conflict Resolution + Event Close
+$tpl = AssetLifecycleService::createEventTemplate($pdo, [
+    'name_en' => 'Choir Uniform Kit',
+    'items' => [['asset_id' => $assetId, 'qty' => 1]],
+], $headActor);
+assertTrue((int)$tpl['id'] > 0, 'Event template created');
+
 $ev = AssetLifecycleService::createEvent($pdo, [
     'name_en' => 'Meskel Distribution',
+    'template_id' => (int)$tpl['id'],
     'stations' => [['station_name' => 'North Gate', 'operator_user_id' => $officerId]],
 ], $headActor);
 $evId = (int)$ev['id'];
 $stId = (int)$pdo->query("SELECT id FROM qa_event_stations WHERE event_id = {$evId} LIMIT 1")->fetchColumn();
 AssetLifecycleService::allocateStationStock($pdo, $evId, $stId, $assetId, 1);
+$prep = AssetLifecycleService::prepareEventParticipants($pdo, $evId, ['section_name' => 'Grade 5']);
+assertTrue($prep['participants_added'] >= 1, 'Event participants prepared via filter');
 
-$memberId = (int)$pdo->query("SELECT id FROM qa_member_sync_cache WHERE external_member_id = 'ci_stu_1' LIMIT 1")->fetchColumn();
+$memberId = (int)$pdo->query("SELECT id FROM qa_member_sync_cache WHERE external_member_id = '{$extStu1}' LIMIT 1")->fetchColumn();
 $batchRes = AssetLifecycleService::syncEventBatch($pdo, $evId, [
     ['client_tx_uuid' => AssetService::generateUuidV4(), 'station_id' => $stId, 'member_cache_id' => $memberId, 'asset_id' => $assetId, 'tx_type' => 'issue', 'quantity' => 2],
 ], $officerActor);
 assertTrue($batchRes['accepted'] === 1 && $batchRes['conflicts'] === 1, 'Over-allocated offline event tx flagged as conflict instead of lost');
-$rec = AssetLifecycleService::reconcileEvent($pdo, $evId);
-assertTrue($rec['conflicts_needing_review'] === 1, 'Event reconciliation reports 1 conflict');
 
-// 11. Maintenance lifecycle, inspection scan variance, and controlled disposal
+$txConflictId = (int)$pdo->query("SELECT id FROM qa_event_transactions WHERE event_id = {$evId} AND conflict_flag = 1 LIMIT 1")->fetchColumn();
+AssetLifecycleService::resolveEventConflict($pdo, $evId, $txConflictId, 'Approved overage by Head', $headActor);
+$closedEv = AssetLifecycleService::closeEvent($pdo, $evId, $headActor);
+assertTrue($closedEv['status'] === 'closed', 'Event closed after resolving conflicts');
+
+// 12. Maintenance, Inspection Close + Findings, Disposal Open-Issue Guard + Override
 $ticket = AssetLifecycleService::createMaintenanceTicket($pdo, [
     'asset_id' => $assetId,
     'issue_description' => 'Hem stitching repair',
@@ -248,22 +331,92 @@ $ticket = AssetLifecycleService::createMaintenanceTicket($pdo, [
 ], $officerActor);
 AssetLifecycleService::updateMaintenanceTicket($pdo, (int)$ticket['id'], ['status' => 'completed'], $officerActor);
 $postMaintStatus = $pdo->query("SELECT status FROM qa_assets WHERE id = {$assetId}")->fetchColumn();
-assertTrue($postMaintStatus === 'in_stock', 'Asset restored to in_stock after maintenance');
+assertTrue(in_array($postMaintStatus, ['in_stock', 'low_stock'], true), 'Asset restored from maintenance');
 
 $insp = AssetLifecycleService::createInspection($pdo, ['title' => 'Annual Count'], $headActor);
-$scanRes = AssetLifecycleService::recordInspectionScans($pdo, (int)$insp['id'], [
-    ['asset_id' => $assetId, 'outcome' => 'inspected', 'counted_qty' => 14],
+AssetLifecycleService::recordInspectionScans($pdo, (int)$insp['id'], [
+    ['asset_id' => $assetId, 'outcome' => 'damaged', 'counted_qty' => 12, 'notes' => '1 damaged tunic'],
 ], $headActor);
-assertTrue($scanRes['recorded_scans'] === 1, 'Inspection scan recorded');
+$finding = AssetLifecycleService::createFindingFromInspection($pdo, (int)$insp['id'], [
+    'title' => 'Tunic count variance',
+    'description' => '1 tunic missing from shelf count',
+    'severity' => 'medium',
+], $headActor);
+assertTrue((int)$finding['id'] > 0, 'Audit finding created from inspection');
+$closedInsp = AssetLifecycleService::closeInspection($pdo, (int)$insp['id'], $headActor);
+assertTrue($closedInsp['status'] === 'closed', 'Inspection closed cleanly');
 
+// Disposal blocked because member still has active open handover (FR-10 guardrail)
+$dispBlocked = false;
+try {
+    AssetLifecycleService::requestDisposal($pdo, [
+        'asset_id' => $assetId,
+        'reason_type' => 'retired',
+        'reason_detail' => 'Attempt without override',
+    ], $officerActor);
+} catch (\DomainException $e) {
+    $dispBlocked = true;
+}
+assertTrue($dispBlocked, 'Disposal blocked when asset has open handover');
+
+// Deputy overrides open handover with mandatory reason
 $disp = AssetLifecycleService::requestDisposal($pdo, [
     'asset_id' => $assetId,
     'reason_type' => 'retired',
     'reason_detail' => 'End of life uniform batch',
-], $officerActor);
-$dispDecision = AssetLifecycleService::decideDisposal($pdo, (int)$disp['id'], 'approve', $deputyActor);
-assertTrue($dispDecision['status'] === 'COMPLETED', 'Disposal completed by deputy chairperson');
+    'override_open_issues' => true,
+    'override_reason' => 'Confirmed write-off after audit',
+], $deputyActor);
+$dispDecision = AssetLifecycleService::decideDisposal($pdo, (int)$disp['id'], 'approve', $headActor);
+assertTrue($dispDecision['status'] === 'COMPLETED', 'Disposal completed with authorized override');
 $finalAssetStatus = $pdo->query("SELECT status FROM qa_assets WHERE id = {$assetId}")->fetchColumn();
 assertTrue($finalAssetStatus === 'retired', 'Disposed asset transitioned to retired');
 
-echo "ALL PHP + MARIADB PHASE 1 & PHASE 2 SMOKE CHECKS PASSED.\n";
+// 13. Bilingual Asset Reports + CSV / HTML / PDF / XLSX Exports
+$rep = AssetReportService::generate($pdo, 'inventory_register');
+assertTrue(count($rep['rows']) >= 1, 'Inventory register report generated');
+foreach (['csv', 'html', 'pdf', 'xlsx'] as $fmt) {
+    $exp = AssetReportService::export($pdo, 'inventory_register', $fmt, [], $headActor);
+    assertTrue(strlen($exp['body']) > 20, "Report exported cleanly as {$fmt}");
+}
+
+// 14. Operational Year-End Close + Carry-Forward + Reopen
+$closedYear = OperationalYearService::closeYear($pdo, (int)$activeYear['id'], null, $adminActor);
+assertTrue((int)$closedYear['next_year_id'] > 0, 'Year closed and carried forward to next E.C. year');
+$reopened = OperationalYearService::reopenYear($pdo, (int)$activeYear['id'], 'CI verification reopen', $adminActor);
+assertTrue($reopened['status'] === 'reopened', 'Year reopened with audit reason');
+$pdo->prepare("UPDATE qa_operational_years SET status = 'active' WHERE id = :id")->execute([':id' => (int)$activeYear['id']]);
+$pdo->prepare("UPDATE qa_operational_years SET status = 'planned' WHERE id = :id")->execute([':id' => (int)$closedYear['next_year_id']]);
+
+// 15. Real HTTP Route Dispatch Test via built-in PHP server
+$port = 18089;
+$docRoot = dirname(__DIR__);
+$cmd = sprintf('php -S 127.0.0.1:%d -t %s', $port, escapeshellarg($docRoot));
+$proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+assertTrue(is_resource($proc), 'Started PHP built-in test server');
+usleep(400000);
+
+$ctxGet = stream_context_create([
+    'http' => [
+        'method' => 'GET',
+        'header' => "Authorization: Bearer {$jwt}\r\nAccept: application/json\r\n",
+        'ignore_errors' => true,
+        'timeout' => 5,
+    ],
+]);
+$healthBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/system/health", false, $ctxGet);
+$healthJson = is_string($healthBody) ? json_decode($healthBody, true) : null;
+assertTrue(is_array($healthJson) && !empty($healthJson['ok']) && $healthJson['data']['db'] === 'ok', 'HTTP GET /api/v1/system/health succeeded');
+
+$assetsBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/assets", false, $ctxGet);
+$assetsJson = is_string($assetsBody) ? json_decode($assetsBody, true) : null;
+assertTrue(is_array($assetsJson) && !empty($assetsJson['ok']), 'HTTP GET /api/v1/assets succeeded');
+
+$repBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/reports/assets/inventory_register", false, $ctxGet);
+$repJson = is_string($repBody) ? json_decode($repBody, true) : null;
+assertTrue(is_array($repJson) && !empty($repJson['ok']), 'HTTP GET /api/v1/reports/assets/inventory_register succeeded');
+
+proc_terminate($proc);
+proc_close($proc);
+
+echo "ALL PHP + MARIADB + HTTP STEP A SMOKE CHECKS PASSED.\n";

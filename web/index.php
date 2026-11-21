@@ -52,6 +52,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($action === 'login' || ($_POST['ac
 }
 
 if (!$user) {
+    if (($_GET['page'] ?? '') === 'setup') {
+        require __DIR__ . '/pages/setup.php';
+        exit;
+    }
     require __DIR__ . '/pages/login.php';
     exit;
 }

@@ -384,6 +384,10 @@ final class AssetService
                 'after' => ['quantity' => $newAssetQty, 'status' => $newStatus, 'movement_id' => $movementId],
             ]);
 
+            if (in_array($newStatus, ['low_stock', 'out_of_stock'], true)) {
+                self::emitLowStockAlert($tx, $assetId, (string)$asset['asset_code'], (string)$asset['name_en'], $newAssetQty, (int)$asset['min_quantity']);
+            }
+
             return [
                 'movement_id' => $movementId,
                 'asset_id' => $assetId,
@@ -391,6 +395,291 @@ final class AssetService
                 'status' => $newStatus,
             ];
         });
+    }
+
+    /**
+     * Update non-balance asset metadata (`PATCH /assets/{id}`) while preserving history.
+     *
+     * @param array<string,mixed> $input
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
+    public static function updateAsset(PDO $pdo, int $assetId, array $input, array $actor): array
+    {
+        return Connection::transaction(function (PDO $tx) use ($assetId, $input, $actor): array {
+            $stmt = $tx->prepare('SELECT * FROM qa_assets WHERE id = :id LIMIT 1 FOR UPDATE');
+            $stmt->execute([':id' => $assetId]);
+            $before = $stmt->fetch();
+            if (!$before) {
+                throw new DomainException('Asset not found.');
+            }
+
+            $nameEn = array_key_exists('name_en', $input) ? trim((string)$input['name_en']) : (string)$before['name_en'];
+            if ($nameEn === '') {
+                throw new DomainException('name_en cannot be empty.');
+            }
+            $condRaw = array_key_exists('condition_status', $input) ? (string)$input['condition_status'] : (string)$before['condition_status'];
+            $cond = in_array($condRaw, ['new', 'good', 'fair', 'poor', 'damaged', 'under_repair', 'disposed'], true)
+                ? $condRaw : (string)$before['condition_status'];
+
+            $customFields = isset($input['custom_fields']) && is_array($input['custom_fields'])
+                ? json_encode($input['custom_fields'], JSON_UNESCAPED_UNICODE)
+                : $before['custom_fields_json'];
+
+            $tx->prepare(
+                'UPDATE qa_assets
+                 SET name_en = :ne,
+                     name_am = :na,
+                     description = :descr,
+                     serial_number = :sn,
+                     manufacturer = :mfg,
+                     model = :mdl,
+                     custom_fields_json = :cf,
+                     min_quantity = :mq,
+                     location_id = :loc,
+                     department_id = :dept,
+                     unit_cost = :ucost,
+                     condition_status = :cond
+                 WHERE id = :id'
+            )->execute([
+                ':ne' => $nameEn,
+                ':na' => array_key_exists('name_am', $input) ? $input['name_am'] : $before['name_am'],
+                ':descr' => array_key_exists('description', $input) ? $input['description'] : $before['description'],
+                ':sn' => array_key_exists('serial_number', $input) ? $input['serial_number'] : $before['serial_number'],
+                ':mfg' => array_key_exists('manufacturer', $input) ? $input['manufacturer'] : $before['manufacturer'],
+                ':mdl' => array_key_exists('model', $input) ? $input['model'] : $before['model'],
+                ':cf' => $customFields,
+                ':mq' => array_key_exists('min_quantity', $input) ? max(0, (int)$input['min_quantity']) : (int)$before['min_quantity'],
+                ':loc' => array_key_exists('location_id', $input) ? ($input['location_id'] ? (int)$input['location_id'] : null) : $before['location_id'],
+                ':dept' => array_key_exists('department_id', $input) ? ($input['department_id'] ? (int)$input['department_id'] : null) : $before['department_id'],
+                ':ucost' => array_key_exists('unit_cost', $input) ? ($input['unit_cost'] !== '' ? (float)$input['unit_cost'] : null) : $before['unit_cost'],
+                ':cond' => $cond,
+                ':id' => $assetId,
+            ]);
+
+            $after = self::getById($tx, $assetId);
+            AuditLogger::log($tx, [
+                'actor_user_id' => (int)$actor['uid'],
+                'actor_role' => (string)$actor['role'],
+                'action' => 'asset.update',
+                'entity_type' => 'asset',
+                'entity_id' => (string)$assetId,
+                'before' => ['name_en' => $before['name_en'], 'condition_status' => $before['condition_status'], 'location_id' => $before['location_id']],
+                'after' => ['name_en' => $nameEn, 'condition_status' => $cond, 'location_id' => $after['location_id'] ?? null],
+            ]);
+
+            return $after ?? ['id' => $assetId];
+        });
+    }
+
+    /**
+     * @param array<string,mixed> $input
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
+    public static function createCategory(PDO $pdo, array $input, array $actor): array
+    {
+        $code = strtoupper(trim((string)($input['code'] ?? '')));
+        $nameEn = trim((string)($input['name_en'] ?? ''));
+        $nameAm = trim((string)($input['name_am'] ?? $nameEn));
+        $modeRaw = (string)($input['tracking_mode'] ?? 'fixed');
+        $mode = in_array($modeRaw, ['fixed', 'consumable', 'reusable_member'], true) ? $modeRaw : 'fixed';
+        if ($code === '' || $nameEn === '') {
+            throw new DomainException('code and name_en are required for asset category.');
+        }
+
+        $pdo->prepare(
+            'INSERT INTO qa_asset_categories (parent_id, code, name_en, name_am, tracking_mode, qr_required, requires_return, field_schema_json)
+             VALUES (:pid, :code, :ne, :na, :tm, :qr, :rr, :fs)'
+        )->execute([
+            ':pid' => !empty($input['parent_id']) ? (int)$input['parent_id'] : null,
+            ':code' => substr($code, 0, 32),
+            ':ne' => $nameEn,
+            ':na' => $nameAm,
+            ':tm' => $mode,
+            ':qr' => isset($input['qr_required']) ? (!empty($input['qr_required']) ? 1 : 0) : ($mode === 'fixed' ? 1 : 0),
+            ':rr' => isset($input['requires_return']) ? (!empty($input['requires_return']) ? 1 : 0) : ($mode !== 'consumable' ? 1 : 0),
+            ':fs' => isset($input['field_schema']) && is_array($input['field_schema']) ? json_encode($input['field_schema'], JSON_UNESCAPED_UNICODE) : null,
+        ]);
+        $id = (int)$pdo->lastInsertId();
+        AuditLogger::log($pdo, [
+            'actor_user_id' => (int)$actor['uid'],
+            'actor_role' => (string)$actor['role'],
+            'action' => 'asset_category.create',
+            'entity_type' => 'asset_category',
+            'entity_id' => (string)$id,
+            'after' => ['code' => $code, 'tracking_mode' => $mode],
+        ]);
+        return ['id' => $id, 'code' => $code, 'name_en' => $nameEn, 'tracking_mode' => $mode];
+    }
+
+    /**
+     * @param array<string,mixed> $input
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
+    public static function createLocation(PDO $pdo, array $input, array $actor): array
+    {
+        $code = strtoupper(trim((string)($input['code'] ?? '')));
+        $nameEn = trim((string)($input['name_en'] ?? ''));
+        $nameAm = trim((string)($input['name_am'] ?? $nameEn));
+        if ($code === '' || $nameEn === '') {
+            throw new DomainException('code and name_en are required for asset location.');
+        }
+
+        $pdo->prepare(
+            'INSERT INTO qa_asset_locations (code, name_en, name_am, building, room, custodian_user_id)
+             VALUES (:code, :ne, :na, :bld, :rm, :cust)'
+        )->execute([
+            ':code' => substr($code, 0, 32),
+            ':ne' => $nameEn,
+            ':na' => $nameAm,
+            ':bld' => $input['building'] ?? null,
+            ':rm' => $input['room'] ?? null,
+            ':cust' => !empty($input['custodian_user_id']) ? (int)$input['custodian_user_id'] : null,
+        ]);
+        $id = (int)$pdo->lastInsertId();
+        AuditLogger::log($pdo, [
+            'actor_user_id' => (int)$actor['uid'],
+            'actor_role' => (string)$actor['role'],
+            'action' => 'asset_location.create',
+            'entity_type' => 'asset_location',
+            'entity_id' => (string)$id,
+            'after' => ['code' => $code, 'name_en' => $nameEn],
+        ]);
+        return ['id' => $id, 'code' => $code, 'name_en' => $nameEn];
+    }
+
+    /**
+     * Member-level asset profile + clothing sizes + full issue/return history (FR-15).
+     *
+     * @return array<string,mixed>
+     */
+    public static function getMemberAssetSummary(PDO $pdo, string $externalMemberId): array
+    {
+        $mStmt = $pdo->prepare(
+            'SELECT m.*, p.clothing_size, p.shoe_size, p.notes AS sizing_notes
+             FROM qa_member_sync_cache m
+             LEFT JOIN qa_member_asset_profiles p ON p.member_cache_id = m.id
+             WHERE m.external_member_id = :ext
+             LIMIT 1'
+        );
+        $mStmt->execute([':ext' => $externalMemberId]);
+        $member = $mStmt->fetch();
+        if (!$member) {
+            throw new DomainException('Member not found in sync directory.');
+        }
+        $mcId = (int)$member['id'];
+
+        $hStmt = $pdo->prepare(
+            'SELECT h.handover_number, h.handover_type, h.quantity, h.condition_at_handover,
+                    h.expected_return_date, h.verification_method, h.server_received_at,
+                    a.id AS asset_id, a.asset_code, a.name_en AS asset_name
+             FROM qa_asset_handovers h
+             JOIN qa_assets a ON a.id = h.asset_id
+             WHERE h.member_cache_id = :mcid
+             ORDER BY h.id DESC LIMIT 200'
+        );
+        $hStmt->execute([':mcid' => $mcId]);
+        $handovers = $hStmt->fetchAll();
+
+        $evStmt = $pdo->prepare(
+            'SELECT t.tx_type, t.quantity, t.condition_note, t.device_tx_at,
+                    e.event_code, e.name_en AS event_name, a.asset_code, a.name_en AS asset_name
+             FROM qa_event_transactions t
+             JOIN qa_events e ON e.id = t.event_id
+             JOIN qa_assets a ON a.id = t.asset_id
+             WHERE t.member_cache_id = :mcid
+             ORDER BY t.id DESC LIMIT 200'
+        );
+        $evStmt->execute([':mcid' => $mcId]);
+        $eventTxs = $evStmt->fetchAll();
+
+        return [
+            'member' => $member,
+            'handovers' => $handovers,
+            'event_transactions' => $eventTxs,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $input
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
+    public static function upsertMemberAssetProfile(PDO $pdo, string $externalMemberId, array $input, array $actor): array
+    {
+        $mStmt = $pdo->prepare('SELECT id FROM qa_member_sync_cache WHERE external_member_id = :ext LIMIT 1');
+        $mStmt->execute([':ext' => $externalMemberId]);
+        $mcId = (int)($mStmt->fetchColumn() ?: 0);
+        if ($mcId <= 0) {
+            throw new DomainException('Member not found in sync directory.');
+        }
+
+        $pdo->prepare(
+            'INSERT INTO qa_member_asset_profiles (member_cache_id, clothing_size, shoe_size, notes, updated_by)
+             VALUES (:mcid, :cs, :ss, :notes, :by)
+             ON DUPLICATE KEY UPDATE
+                clothing_size = VALUES(clothing_size),
+                shoe_size = VALUES(shoe_size),
+                notes = VALUES(notes),
+                updated_by = VALUES(updated_by)'
+        )->execute([
+            ':mcid' => $mcId,
+            ':cs' => isset($input['clothing_size']) ? substr(trim((string)$input['clothing_size']), 0, 24) : null,
+            ':ss' => isset($input['shoe_size']) ? substr(trim((string)$input['shoe_size']), 0, 24) : null,
+            ':notes' => isset($input['notes']) ? substr(trim((string)$input['notes']), 0, 255) : null,
+            ':by' => (int)$actor['uid'],
+        ]);
+
+        AuditLogger::log($pdo, [
+            'actor_user_id' => (int)$actor['uid'],
+            'actor_role' => (string)$actor['role'],
+            'action' => 'member_profile.upsert',
+            'entity_type' => 'member',
+            'entity_id' => $externalMemberId,
+            'after' => ['clothing_size' => $input['clothing_size'] ?? null, 'shoe_size' => $input['shoe_size'] ?? null],
+        ]);
+
+        return self::getMemberAssetSummary($pdo, $externalMemberId);
+    }
+
+    /**
+     * @return list<array<string,mixed>>
+     */
+    public static function listOverdueHandovers(PDO $pdo): array
+    {
+        return $pdo->query(
+            "SELECT h.id, h.handover_number, h.asset_id, a.asset_code, a.name_en AS asset_name,
+                    h.receiver_display_name, h.quantity, h.expected_return_date, h.server_received_at
+             FROM qa_asset_handovers h
+             JOIN qa_assets a ON a.id = h.asset_id
+             WHERE h.handover_type = 'issue'
+               AND h.expected_return_date IS NOT NULL
+               AND h.expected_return_date < CURDATE()
+             ORDER BY h.expected_return_date ASC
+             LIMIT 200"
+        )->fetchAll();
+    }
+
+    public static function emitLowStockAlert(PDO $pdo, int $assetId, string $assetCode, string $assetName, int $qty, int $minQty): void
+    {
+        $heads = $pdo->query("SELECT id FROM qa_users WHERE qa_role IN ('asset_head','asset_admin') AND is_active = 1")->fetchAll();
+        if ($heads === []) {
+            return;
+        }
+        $stmt = $pdo->prepare(
+            "INSERT INTO qa_notifications (recipient_user_id, title, message, type, entity_type, entity_id)
+             VALUES (:uid, :title, :msg, 'warning', 'asset', :eid)"
+        );
+        foreach ($heads as $u) {
+            $stmt->execute([
+                ':uid' => (int)$u['id'],
+                ':title' => "Low Stock Alert: {$assetCode}",
+                ':msg' => "{$assetName} ({$assetCode}) stock is {$qty} (min threshold {$minQty}).",
+                ':eid' => $assetId,
+            ]);
+        }
     }
 
     public static function deriveStockStatus(string $trackingMode, int $qty, int $minQty, string $currentStatus): string

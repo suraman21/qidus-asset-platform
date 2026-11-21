@@ -182,6 +182,53 @@ final class AssetWorkflowService
     }
 
     /**
+     * Allow requester to resubmit a request that was RETURNED_FOR_CORRECTION.
+     *
+     * @param array<string,mixed> $input
+     * @param array<string,mixed> $actor
+     * @return array<string,mixed>
+     */
+    public static function resubmitRequest(PDO $pdo, int $requestId, array $input, array $actor): array
+    {
+        return Connection::transaction(function (PDO $tx) use ($requestId, $input, $actor): array {
+            $stmt = $tx->prepare('SELECT * FROM qa_asset_requests WHERE id = :id LIMIT 1 FOR UPDATE');
+            $stmt->execute([':id' => $requestId]);
+            $req = $stmt->fetch();
+            if (!$req) {
+                throw new DomainException('Asset request not found.');
+            }
+            if ((int)$req['requester_id'] !== (int)$actor['uid'] && $actor['role'] !== 'system_admin') {
+                throw new DomainException('Only the original requester may resubmit this request.');
+            }
+            if ($req['status'] !== 'RETURNED_FOR_CORRECTION') {
+                throw new DomainException('Only requests returned for correction can be resubmitted.');
+            }
+
+            $qty = isset($input['quantity']) ? max(1, (int)$input['quantity']) : (int)$req['quantity'];
+            $reason = isset($input['reason']) && trim((string)$input['reason']) !== ''
+                ? trim((string)$input['reason']) : (string)$req['reason'];
+
+            $tx->prepare(
+                "UPDATE qa_asset_requests
+                 SET quantity = :qty, reason = :rsn, status = 'PENDING_DEPARTMENT_HEAD'
+                 WHERE id = :id"
+            )->execute([':qty' => $qty, ':rsn' => $reason, ':id' => $requestId]);
+
+            AuditLogger::log($tx, [
+                'actor_user_id' => (int)$actor['uid'],
+                'actor_role' => (string)$actor['role'],
+                'action' => 'asset_request.resubmit',
+                'entity_type' => 'asset_request',
+                'entity_id' => (string)$requestId,
+                'before' => ['status' => $req['status']],
+                'after' => ['status' => 'PENDING_DEPARTMENT_HEAD', 'quantity' => $qty],
+            ]);
+
+            return ['id' => $requestId, 'status' => 'PENDING_DEPARTMENT_HEAD'];
+        });
+    }
+
+    /**
      * Create custody handover with drawn signatures + optional Android Keystore biometric signature.
      *
      * @param array<string,mixed> $input
@@ -389,6 +436,10 @@ final class AssetWorkflowService
             if (!empty($input['asset_request_id']) && $handoverType === 'issue') {
                 $tx->prepare("UPDATE qa_asset_requests SET status = 'FULFILLED' WHERE id = :rid AND status = 'APPROVED'")
                     ->execute([':rid' => (int)$input['asset_request_id']]);
+            }
+
+            if (in_array($newStatus, ['low_stock', 'out_of_stock'], true)) {
+                AssetService::emitLowStockAlert($tx, $assetId, (string)$asset['asset_code'], (string)$asset['name_en'], $newQty, (int)$asset['min_quantity']);
             }
 
             AuditLogger::log($tx, [
