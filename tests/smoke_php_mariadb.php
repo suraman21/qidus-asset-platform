@@ -391,7 +391,17 @@ $router = $docRoot . '/api/v1/index.php';
 $cmd = sprintf('php -S 127.0.0.1:%d -t %s %s', $port, escapeshellarg($docRoot), escapeshellarg($router));
 $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 assertTrue(is_resource($proc), 'Started PHP built-in test server');
-usleep(400000);
+$ready = false;
+for ($w = 0; $w < 30; $w++) {
+    $fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
+    if (is_resource($fp)) {
+        fclose($fp);
+        $ready = true;
+        break;
+    }
+    usleep(100000);
+}
+assertTrue($ready, 'PHP built-in test server listening on port 18089');
 
 $adminJwt = JwtService::issueAccessToken([
     'uid' => $adminId,
@@ -410,7 +420,7 @@ $ctxAdminGet = stream_context_create([
 ]);
 $healthBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/system/health", false, $ctxAdminGet);
 $healthJson = is_string($healthBody) ? json_decode($healthBody, true) : null;
-assertTrue(is_array($healthJson) && !empty($healthJson['ok']) && !empty($healthJson['data']['db_connected']), 'HTTP GET /api/v1/system/health succeeded');
+assertTrue(is_array($healthJson) && !empty($healthJson['ok']) && !empty($healthJson['data']['db_connected']), 'HTTP GET /api/v1/system/health succeeded (body=' . var_export($healthBody, true) . ')');
 
 $ctxGet = stream_context_create([
     'http' => [
@@ -422,11 +432,11 @@ $ctxGet = stream_context_create([
 ]);
 $assetsBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/assets", false, $ctxGet);
 $assetsJson = is_string($assetsBody) ? json_decode($assetsBody, true) : null;
-assertTrue(is_array($assetsJson) && !empty($assetsJson['ok']), 'HTTP GET /api/v1/assets succeeded');
+assertTrue(is_array($assetsJson) && !empty($assetsJson['ok']), 'HTTP GET /api/v1/assets succeeded (body=' . var_export($assetsBody, true) . ')');
 
 $repBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/reports/assets/inventory_register", false, $ctxGet);
 $repJson = is_string($repBody) ? json_decode($repBody, true) : null;
-assertTrue(is_array($repJson) && !empty($repJson['ok']), 'HTTP GET /api/v1/reports/assets/inventory_register succeeded');
+assertTrue(is_array($repJson) && !empty($repJson['ok']), 'HTTP GET /api/v1/reports/assets/inventory_register succeeded (body=' . var_export($repBody, true) . ')');
 
 proc_terminate($proc);
 proc_close($proc);
