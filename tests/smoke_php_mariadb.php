@@ -534,7 +534,7 @@ for ($attempt = 1; $attempt <= 9; $attempt++) {
     ]);
     $loginRes = @file_get_contents("http://127.0.0.1:{$port}/api/v1/auth/login", false, $loginCtx);
     $loginJson = is_string($loginRes) ? json_decode($loginRes, true) : null;
-    if (($loginJson['error']['code'] ?? '') === 'RATE_LIMITED') {
+    if (($loginJson['code'] ?? '') === 'RATE_LIMITED') {
         $rateLimited = true;
         break;
     }
