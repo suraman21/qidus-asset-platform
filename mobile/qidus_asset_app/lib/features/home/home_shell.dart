@@ -12,6 +12,7 @@ import '../events/rapid_event_screen.dart';
 import '../handover/handover_screen.dart';
 import '../scan/qr_scan_screen.dart';
 import '../sync/outbox_screen.dart';
+import 'role_home_screen.dart';
 
 class HomeShell extends StatefulWidget {
   final ApiClient api;
@@ -82,8 +83,9 @@ class _HomeShellState extends State<HomeShell> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Synced ${sum.syncedOutbox} queued · Pulled ${sum.pulledAssets} assets / ${sum.pulledMembers} members'
-              '${sum.conflicts > 0 ? ' · ${sum.conflicts} conflicts!' : ''}',
+              'Synced ${sum.syncedOutbox} · Pulled ${sum.pulledAssets} assets / ${sum.pulledMembers} members / ${sum.pulledEvents} events'
+              '${sum.conflicts > 0 ? ' · ${sum.conflicts} conflicts!' : ''}'
+              '${sum.rejected > 0 ? ' · ${sum.rejected} rejected!' : ''}',
             ),
           ),
         );
@@ -97,10 +99,17 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final s = AppStrings(widget.lang);
     final screens = [
-      QrScanScreen(api: widget.api, onQueued: _refreshBadge),
-      HandoverScreen(api: widget.api, onQueued: _refreshBadge),
-      RapidEventScreen(api: widget.api, onQueued: _refreshBadge),
-      OutboxScreen(onSyncNow: _triggerSync),
+      RoleHomeScreen(
+        api: widget.api,
+        user: widget.user,
+        lang: widget.lang,
+        onOpenScan: () => setState(() => _tab = 1),
+        onOpenEvents: () => setState(() => _tab = 3),
+      ),
+      QrScanScreen(api: widget.api, lang: widget.lang, onQueued: _refreshBadge),
+      HandoverScreen(api: widget.api, lang: widget.lang, onQueued: _refreshBadge),
+      RapidEventScreen(api: widget.api, lang: widget.lang, onQueued: _refreshBadge),
+      OutboxScreen(onSyncNow: _triggerSync, lang: widget.lang),
     ];
 
     return Scaffold(
@@ -152,6 +161,7 @@ class _HomeShellState extends State<HomeShell> {
           _refreshBadge();
         },
         destinations: [
+          NavigationDestination(icon: const Icon(Icons.dashboard), label: s.homeTab),
           NavigationDestination(icon: const Icon(Icons.qr_code_scanner), label: s.scanTab),
           NavigationDestination(icon: const Icon(Icons.assignment_turned_in), label: s.handoverTab),
           NavigationDestination(icon: const Icon(Icons.flash_on), label: s.eventsTab),

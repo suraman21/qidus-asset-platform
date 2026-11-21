@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="am" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QIDUS ASSET — Phase 2 High-Fidelity Interactive Prototype</title>
+<style>
+:root, [data-theme="dark"] {
+  --bg: #07080d;
+  --surface: #10131c;
+  --card: #161b28;
+  --input: #1d2333;
+  --border: rgba(255,255,255,0.09);
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --primary: #3b82f6;
+  --accent: #f59e0b;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #06b6d4;
+}
+[data-theme="light"] {
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --card: #ffffff;
+  --input: #f8fafc;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --muted: #475569;
+  --primary: #1e3a8a;
+  --accent: #d97706;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --info: #0284c7;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "DM Sans", "Noto Sans Ethiopic", "Segoe UI", system-ui, sans-serif;
+  line-height: 1.48;
+}
+.proto-bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.proto-title { font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  border: 1px solid var(--border); background: var(--input); color: var(--text);
+}
+.pill.ok { background: rgba(16,185,129,0.14); color: var(--success); border-color: rgba(16,185,129,0.3); }
+.pill.warn { background: rgba(245,158,11,0.14); color: var(--warning); border-color: rgba(245,158,11,0.3); }
+.pill.err { background: rgba(239,68,68,0.14); color: var(--danger); border-color: rgba(239,68,68,0.3); }
+.pill.info { background: rgba(6,182,212,0.14); color: var(--info); border-color: rgba(6,182,212,0.3); }
+.btn {
+  border: 1px solid var(--border); background: var(--input); color: var(--text);
+  border-radius: 9px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.btn.primary { background: var(--primary); color: #fff; border-color: transparent; }
+.btn.accent { background: var(--accent); color: #111827; border-color: transparent; }
+.btn.success { background: var(--success); color: #fff; border-color: transparent; }
+.btn.danger { background: var(--danger); color: #fff; border-color: transparent; }
+.ctrl-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+.shell {
+  display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 54px);
+}
+.sidebar {
+  background: var(--surface); border-right: 1px solid var(--border);
+  padding: 16px 14px; display: flex; flex-direction: column; gap: 14px;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-box {
+  width: 38px; height: 38px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  display: grid; place-items: center; font-weight: 900; color: #fff; flex-shrink: 0;
+}
+.nav-sec { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 4px 8px; font-weight: 700; }
+.nav-btn {
+  width: 100%; text-align: left; border: 1px solid transparent; background: transparent; color: var(--text);
+  padding: 9px 10px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.nav-btn:hover { background: var(--input); }
+.nav-btn.active { background: rgba(245,158,11,0.14); border-color: rgba(245,158,11,0.32); color: var(--accent); }
+.main { padding: 18px 22px; display: flex; flex-direction: column; gap: 16px; }
+.topbar {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 10px 14px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+}
+.search-input {
+  flex: 1; min-width: 220px; background: var(--input); border: 1px solid var(--border);
+  color: var(--text); border-radius: 10px; padding: 8px 12px; font-size: 13px;
+}
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px;
+}
+.kpi-val { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.muted { color: var(--muted); font-size: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; }
+
+/* Mobile Phone Frame Preview */
+.phone-wrap {
+  display: none; justify-content: center; padding: 20px 12px;
+}
+.phone-wrap.active { display: flex; }
+.shell.hidden { display: none; }
+.phone {
+  width: 390px; max-width: 100%; background: var(--surface);
+  border: 6px solid #1e293b; border-radius: 34px; overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+  display: flex; flex-direction: column; min-height: 760px;
+}
+.phone-appbar {
+  padding: 14px 16px; background: var(--card); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.phone-body { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 12px; background: var(--bg); overflow-y: auto; }
+.phone-nav {
+  display: grid; grid-template-columns: repeat(5, 1fr); background: var(--card); border-top: 1px solid var(--border);
+}
+.phone-tab {
+  border: 0; background: transparent; color: var(--muted); padding: 10px 4px; font-size: 10px; font-weight: 700; cursor: pointer;
+}
+.phone-tab.active { color: var(--accent); }
+.tap-btn { min-height: 48px; width: 100%; font-size: 14px; border-radius: 12px; }
+.scan-box {
+  border: 2px dashed var(--accent); border-radius: 14px; padding: 14px; text-align: center;
+  background: rgba(245,158,11,0.06);
+}
+@media (max-width: 960px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
+  .grid-4, .grid-2 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <div class="proto-title">
+    <span>QIDUS ASSET — Phase 2 Prototype</span>
+    <span class="pill info">v1.0 Redesign Preview</span>
+  </div>
+  <div class="ctrl-group">
+    <button class="btn primary" id="btnDesktop" onclick="setViewport('desktop')">Desktop Web</button>
+    <button class="btn" id="btnMobile" onclick="setViewport('mobile')">Flutter Android</button>
+    <button class="btn accent" id="btnLang" onclick="toggleLang()">አማርኛ / EN</button>
+    <button class="btn" id="btnTheme" onclick="toggleTheme()">Theme: Dark</button>
+  </div>
+</div>
+
+<!-- DESKTOP WEB PROTOTYPE -->
+<div class="shell" id="desktopShell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-box">QA</div>
+      <div>
+        <div style="font-weight:800;font-size:14px" data-i18n="brandTitle">ቅዱስ ንብረት</div>
+        <div class="muted" data-i18n="brandSub">የንብረት እና ፋይናንስ ሥርዓት</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="nav-sec" data-i18n="navWork">የዕለት ተግባራት</div>
+      <button class="nav-btn active" onclick="openScreen('home', this)"><span data-i18n="sHome">የእኔ ሥራ</span><span class="pill warn">5</span></button>
+      <button class="nav-btn" onclick="openScreen('assets', this)"><span data-i18n="sAssets">ንብረቶች እና ምዝገባ</span></button>
+      <button class="nav-btn" onclick="openScreen('detail', this)"><span data-i18n="sDetail">የንብረት ዝርዝር</span></button>
+      <button class="nav-btn" onclick="openScreen('members', this)"><span data-i18n="sMembers">የአባላት ማውጫ (SSMS)</span></button>
+    </div>
+
+    <div>
+      <div class="nav-sec" data-i18n="navOps">አገልግሎቶች እና ዝግጅቶች</div>
+      <button class="nav-btn" onclick="openScreen('events', this)"><span data-i18n="sEvents">ዝግጅት እና ዝግጁነት</span><span class="pill ok">Ready</span></button>
+      <button class="nav-btn" onclick="openScreen('rapid', this)"><span data-i18n="sRapid">ፈጣን የጣቢያ አገልግሎት</span></button>
+      <button class="nav-btn" onclick="openScreen('handover', this)"><span data-i18n="sHandover">ቁጥጥር ያለበት ርክክብ</span></button>
+      <button class="nav-btn" onclick="openScreen('inbox', this)"><span data-i18n="sInbox">ማጽደቂያ እና ግጭቶች</span><span class="pill err">2</span></button>
+    </div>
+
+    <div>
+      <div class="nav-sec" data-i18n="navDept2">ፋይናንስ፣ ግዥ እና ሰነድ</div>
+      <button class="nav-btn" onclick="openScreen('finance', this)"><span data-i18n="sFinance">በጀት፣ ግዥ እና ካዝና</span></button>
+    </div>
+
+    <div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:700">Kidus Yohannes · <span class="pill">asset_officer</span></div>
+      <div class="muted">2019 ዓ.ም. · ኅዳር 12, 2019</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <input class="search-input" id="globalSearch" placeholder="ፈልግ: AST-0012, QA-QR, የአባል መታወቂያ, PR-04..." />
+      <div class="ctrl-group">
+        <span class="pill ok" data-i18n="activeYear">ንቁ ዓመት: 2019 ዓ.ም.</span>
+        <button class="btn" title="Notifications">🔔 3</button>
+        <button class="btn" title="Print / Export">🖨️ PDF/CSV</button>
+      </div>
+    </div>
+    <div id="desktopContent"></div>
+  </main>
+</div>
+
+<!-- FLUTTER ANDROID PHONE PROTOTYPE -->
+<div class="phone-wrap" id="phoneWrap">
+  <div class="phone">
+    <div class="phone-appbar">
+      <div>
+        <div style="font-weight:800;font-size:14px" data-i18n="brandTitle">ቅዱስ ንብረት</div>
+        <div class="muted" style="font-size:11px">2019 ዓ.ም. · Asset Officer</div>
+      </div>
+      <span class="pill ok" id="phoneSyncPill">Ready Offline · 0 queued</span>
+    </div>
+    <div class="phone-body" id="phoneContent"></div>
+    <nav class="phone-nav">
+      <button class="phone-tab active" onclick="openMobile('home', this)">🏠<br><span data-i18n="mHome">መነሻ</span></button>
+      <button class="phone-tab" onclick="openMobile('scan', this)">📷<br><span data-i18n="mScan">ስካን</span></button>
+      <button class="phone-tab" onclick="openMobile('handover', this)">✍️<br><span data-i18n="mHandover">ርክክብ</span></button>
+      <button class="phone-tab" onclick="openMobile('rapid', this)">⚡<br><span data-i18n="mEvents">ዝግጅት</span></button>
+      <button class="phone-tab" onclick="openMobile('inbox', this)">📥<br><span data-i18n="mOutbox">ማውጫ</span></button>
+    </nav>
+  </div>
+</div>
+
+<script>
+let lang = 'am';
+let currentScreen = 'home';
+let rapidMode = 'issue';
+let rapidMember = null; // NEVER preselect first member!
+let rapidIssued = 0;
+
+const T = {
+  am: {
+    brandTitle: 'ቅዱስ ንብረት',
+    brandSub: 'የንብረት እና ፋይናንስ ሥርዓት',
+    navWork: 'የዕለት ተግባራት',
+    navOps: 'አገልግሎቶች እና ዝግጅቶች',
+    navDept2: 'ፋይናንስ፣ ግዥ እና ሰነድ',
+    sHome: 'የእኔ ሥራ',
+    sAssets: 'ንብረቶች እና ምዝገባ',
+    sDetail: 'የንብረት ዝርዝር',
+    sMembers: 'የአባላት ማውጫ (SSMS)',
+    sEvents: 'ዝግጅት እና ዝግጁነት',
+    sRapid: 'ፈጣን የጣቢያ አገልግሎት',
+    sHandover: 'ቁጥጥር ያለበት ርክክብ',
+    sInbox: 'ማጽደቂያ እና ግጭቶች',
+    sFinance: 'በጀት፣ ግዥ እና ካዝና',
+    activeYear: 'ንቁ ዓመት: 2019 ዓ.ም.',
+    mHome: 'መነሻ', mScan: 'ስካን', mHandover: 'ርክክብ', mEvents: 'ዝግጅት', mOutbox: 'ማውጫ'
+  },
+  en: {
+    brandTitle: 'QIDUS ASSET',
+    brandSub: 'Asset & Finance Operations',
+    navWork: 'Daily Work',
+    navOps: 'Custody & Events',
+    navDept2: 'Finance, Procurement & Vault',
+    sHome: 'My Work Queue',
+    sAssets: 'Assets & Guided Register',
+    sDetail: 'Asset Detail',
+    sMembers: 'Member Directory (SSMS)',
+    sEvents: 'Event Prep & Readiness',
+    sRapid: 'Rapid Event Station',
+    sHandover: 'Controlled Handover',
+    sInbox: 'Approvals & Sync Conflicts',
+    sFinance: 'Budgets, Procurement & Vault',
+    activeYear: 'Active Year: 2019 EC',
+    mHome: 'Home', mScan: 'Scan', mHandover: 'Handover', mEvents: 'Events', mOutbox: 'More'
+  }
+};
+
+function renderDesktop() {
+  const el = document.getElementById('desktopContent');
+  const isAm = lang === 'am';
+  if (currentScreen === 'home') {
+    el.innerHTML = `
+      <div class="grid-4">
+        <div class="card"><div class="muted">${isAm ? 'በመጠባበቅ ላይ ያሉ ጥያቄዎች' : 'Pending Approvals'}</div><div class="kpi-val">4</div><span class="pill warn">${isAm ? 'በክፍል ኃላፊ በመታየት ላይ' : 'Awaiting Dept Head'}</span></div>
+        <div class="card"><div class="muted">${isAm ? 'ጊዜው ያለፈበት ርክክብ' : 'Overdue Returns'}</div><div class="kpi-val">3</div><span class="pill err">${isAm ? 'ክትትል ያስፈልጋል' : 'Action Required'}</span></div>
+        <div class="card"><div class="muted">${isAm ? 'ዝቅተኛ ክምችት' : 'Low Stock Alerts'}</div><div class="kpi-val">7</div><span class="pill warn">${isAm ? 'አዲስ ትዕዛዝ ይፈልጋል' : 'Reorder Alert'}</span></div>
+        <div class="card"><div class="muted">${isAm ? 'የተዘጋጀ ዝግጅት' : 'Event Package Ready'}</div><div class="kpi-val">100%</div><span class="pill ok">${isAm ? 'ለከመስመር ውጭ ዝግጁ' : 'Ready Offline'}</span></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <strong>${isAm ? 'ፈጣን ተግባራት (Quick Actions)' : 'Quick Role Actions'}</strong>
+        </div>
+        <div class="ctrl-group">
+          <button class="btn primary" onclick="openScreen('assets')">+ ${isAm ? 'ንብረት መዝግብ' : 'Register Asset'}</button>
+          <button class="btn accent" onclick="openScreen('rapid')">⚡ ${isAm ? 'ፈጣን ዝግጅት ጀምር' : 'Launch Event Station'}</button>
+          <button class="btn" onclick="openScreen('handover')">✍️ ${isAm ? 'ርክክብ ፈጽም' : 'Issue / Return Handover'}</button>
+          <button class="btn" onclick="openScreen('members')">🪪 ${isAm ? 'አባል ፈልግ (SSMS)' : 'Search SSMS Member'}</button>
+        </div>
+      </div>`;
+  } else if (currentScreen === 'assets') {
+    el.innerHTML = `
+      <div class="grid-2">
+        <div class="card">
+          <strong>${isAm ? 'ደረጃ-በደረጃ የንብረት ምዝገባ (Guided Wizard)' : 'Guided Mode-Adaptive Registration'}</strong>
+          <p class="muted">${isAm ? 'መከታተያ ዘዴ ሲመረጥ ቅጹ በራሱ ይቀየራል (ቋሚ / አላቂ / የአባል ልብስ)' : 'Fields adapt automatically when selecting Fixed, Consumable, or Reusable Member Gear.'}</p>
+          <div style="display:grid;gap:8px;margin-top:8px">
+            <select class="search-input"><option>${isAm ? 'የአባል መደጋገሚያ (ልብስ / ጫማ — መጠኖች አሉት)' : 'Reusable Member Gear (Sizes & Variants)'}</option><option>${isAm ? 'ቋሚ ንብረት (Serial + ዋስትና)' : 'Fixed Asset (Serial + Custodian)'}</option><option>${isAm ? 'አላቂ ንብረት (ዝቅተኛ ክምችት ገደብ)' : 'Consumable Stock (Min Reorder Threshold)'}</option></select>
+            <input class="search-input" value="${isAm ? 'የመዘምራን ካባ — ነጭ (M / L / XL)' : 'Choir Robe — White (M / L / XL)'}" />
+            <button class="btn primary">${isAm ? 'መዝግብ እና QR ፍጠር' : 'Save & Generate QR Label'}</button>
+          </div>
+        </div>
+        <div class="card">
+          <strong>${isAm ? 'የንብረት መዝገብ (Server-Side Search & Pagination)' : 'Searchable Asset Register (Paginated)'}</strong>
+          <p class="muted">${isAm ? '250+ ንብረቶች ቢኖሩም በገጽ ተከፋፍለው በQR እና በስም ይፈለጋሉ' : 'Replaces LIMIT 40 with cursor/page pagination & full-text search.'}</p>
+          <table><thead><tr><th>Code</th><th>${isAm ? 'ስም' : 'Name'}</th><th>${isAm ? 'ክምችት' : 'Stock'}</th><th>${isAm ? 'ሁኔታ' : 'Status'}</th></tr></thead>
+          <tbody>
+            <tr><td>AST-0104</td><td>Choir Robe (M/L)</td><td>48</td><td><span class="pill ok">${isAm ? 'ክምችት አለ' : 'In Stock'}</span></td></tr>
+            <tr><td>AST-0082</td><td>Wireless Mic SM58</td><td>2</td><td><span class="pill warn">${isAm ? 'ዝቅተኛ ክምችት' : 'Low Stock'}</span></td></tr>
+          </tbody></table>
+        </div>
+      </div>`;
+  } else if (currentScreen === 'detail') {
+    el.innerHTML = `<div class="card"><strong>AST-0104 · ${isAm ? 'የመዘምራን ካባ (ነጭ)' : 'Choir Robe (White)'}</strong>
+      <p class="muted">QR: QA-ASSET-0104 · ${isAm ? 'ቦታ: ዋና መጋዘን B2 · መጠኖች: S(12), M(20), L(16)' : 'Location: Main Store B2 · Variants: S(12), M(20), L(16)'}</p>
+      <div class="ctrl-group"><span class="pill ok">${isAm ? 'ሁኔታ: ክምችት አለ' : 'Status: In Stock'}</span><span class="pill info">${isAm ? 'ንቁ ርክክቦች: 14' : 'Active Custodies: 14'}</span></div></div>`;
+  } else if (currentScreen === 'members') {
+    el.innerHTML = `<div class="card"><strong>${isAm ? 'የአባላት ማውጫ (SSMS — ያለ ነባሪ ምርጫ)' : 'SSMS Member Directory (No Default Preselection)'}</strong>
+      <p class="muted">${isAm ? '10,000+ አባላትን በስም፣ በQR ወይም በመታወቂያ ቁጥር ይፈልጉ። የግል አባል መረጃ ምንጭ SSMS ብቻ ነው።' : 'Paginated search across 10,000+ SSMS-synced members. Local app stores only garment sizes & custody history.'}</p>
+      <table><thead><tr><th>External ID</th><th>${isAm ? 'ስም' : 'Member'}</th><th>${isAm ? 'ክፍል' : 'Section'}</th><th>${isAm ? 'መጠን' : 'Sizes'}</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>SSMS-1042</td><td>ሰላማዊት ተስፋዬ / Selamawit Tesfaye</td><td>Mezmur Choir</td><td>M / 38</td><td><button class="btn primary" onclick="selectRapidMember('SSMS-1042','ሰላማዊት ተስፋዬ','M');openScreen('rapid')">${isAm ? 'ምረጥ' : 'Select'}</button></td></tr>
+        <tr><td>SSMS-1089</td><td>ዳዊት በቀለ / Dawit Bekele</td><td>Deacon Service</td><td>L / 42</td><td><button class="btn primary" onclick="selectRapidMember('SSMS-1089','ዳዊት በቀለ','L');openScreen('rapid')">${isAm ? 'ምረጥ' : 'Select'}</button></td></tr>
+      </tbody></table></div>`;
+  } else if (currentScreen === 'events') {
+    el.innerHTML = `<div class="card"><strong>${isAm ? 'ዝግጅት ዝግጅት እና የጥቅል ዝግጁነት (Readiness Gate)' : 'Event Preparation & Package Completeness Gate'}</strong>
+      <p class="muted">${isAm ? 'ጥቅሙ ከመጀመሩ በፊት የአባላት ዝርዝር፣ የመጠን መደብ እና የጣቢያ ክምችት SHA-256 ማረጋገጫ 100% መሆኑን ያረጋግጣል።' : 'Verifies manifest SHA-256 + full cursor download of participants, variants & station allocations before unlocking Station Mode.'}</p>
+      <div class="ctrl-group"><span class="pill ok">Manifest SHA-256 Verified</span><span class="pill ok">Participants: 184 / 184</span><span class="pill ok">Station A: 95 M / 50 L</span><button class="btn accent" onclick="openScreen('rapid')">⚡ ${isAm ? 'ጣቢያ A ክፈት' : 'Open Station A'}</button></div></div>`;
+  } else if (currentScreen === 'rapid') {
+    el.innerHTML = renderRapidHtml(isAm);
+  } else if (currentScreen === 'handover') {
+    el.innerHTML = `<div class="card"><strong>${isAm ? 'ቁጥጥር ያለበት ርክክብ (Immutable Member + Auth-Bound Keystore)' : 'Controlled Handover (Immutable Member ID + Auth-Bound Keystore)'}</strong>
+      <p class="muted">${isAm ? 'የአባል መታወቂያ ግዴታ ነው፤ የባዮሜትሪክ ቁልፍ በስልኩ BiometricPrompt ማረጋገጫ ሳይከፈት አይፈርምም። 4xx ስህተቶች ወደ Offline Outbox አይገቡም።' : 'Requires verified external_member_id (or explicit non-member custodian). Keystore key requires BiometricPrompt user authentication; 4xx rejections never queue as offline.'}</p>
+      <div class="ctrl-group"><span class="pill ok">Keystore: AUTH_BIOMETRIC_STRONG</span><span class="pill info">Canonical Payload v2</span></div></div>`;
+  } else if (currentScreen === 'inbox') {
+    el.innerHTML = `<div class="card"><strong>${isAm ? 'ማጽደቂያ እና የግጭት ማስተካከያ' : 'Approvals & Sync Conflict Inbox'}</strong>
+      <table><thead><tr><th>Item</th><th>${isAm ? 'ሁኔታ (Readable)' : 'Status'}</th><th>${isAm ? 'እርምጃ' : 'Action'}</th></tr></thead>
+      <tbody>
+        <tr><td>REQ-2019-0014 · Laptop</td><td><span class="pill warn">${isAm ? 'በምክትል ሰብሳቢ በመታየት ላይ' : 'Awaiting Deputy Approval'}</span></td><td><button class="btn success">${isAm ? 'አጽድቅ' : 'Approve'}</button></td></tr>
+        <tr><td>TX-9f31 · Station B Over-issue</td><td><span class="pill err">${isAm ? 'ግጭት — ክለሳ ይፈልጋል (HTTP 409)' : 'Conflict — Needs Review (HTTP 409)'}</span></td><td><button class="btn primary">${isAm ? 'ፍታ' : 'Resolve'}</button></td></tr>
+      </tbody></table></div>`;
+  } else if (currentScreen === 'finance') {
+    el.innerHTML = `<div class="card"><strong>${isAm ? 'የፋይናንስ፣ ግዥ እና ሰነድ ካዝና (Task-Separated)' : 'Finance, Procurement & Document Vault (Task-Separated)'}</strong>
+      <p class="muted">${isAm ? 'ዕለታዊ ገቢ/ወጪ፣ የ2-ደረጃ ግዥ ማጽደቂያ እና የሰነድ ካዝና በተለያዩ የተደራጁ ገጾች + የአባላት መዋጮ በSSMS ፍለጋ (ያለ 50-ሰው dropdown)።' : 'Separates daily ledger, dual-gated procurement (Stock + Budget gates), foldered Document Vault, and full SSMS member search for contributions.'}</p></div>`;
+  }
+}
+
+function renderRapidHtml(isAm) {
+  const memberCard = rapidMember
+    ? `<div class="card" style="border-color:var(--success)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><strong>${rapidMember.name}</strong><div class="muted">${rapidMember.id} · Choir · Size: ${rapidMember.size}</div></div>
+          <span class="pill ok">${isAm ? 'ንቁ አባል' : 'Verified Member'}</span>
+        </div>
+        <hr style="border:0;border-top:1px solid var(--border);margin:10px 0">
+        ${rapidMode === 'issue'
+          ? `<div><strong>${isAm ? 'የተመደቡ ዕቃዎች (Preconfigured Bundle)' : 'Preconfigured Event Items'}</strong>
+               <div style="margin:8px 0">✅ Choir Robe (Size ${rapidMember.size}) × 1 &nbsp; ✅ Scarf × 1</div>
+               <button class="btn success tap-btn" onclick="confirmRapidTx()">✓ ${isAm ? 'ሁሉንም ስጥ እና ቀጣዩን ስካን አድርግ' : 'Confirm Issue All & Scan Next'}</button></div>`
+          : `<div><strong>${isAm ? 'ያልተመለሱ ዕቃዎች ብቻ (Outstanding Only)' : 'Outstanding Items Only'}</strong>
+               <div style="margin:8px 0">⏳ Choir Robe (Size ${rapidMember.size}) × 1 · Scarf × 1</div>
+               <button class="btn primary tap-btn" onclick="confirmRapidTx()">↩ ${isAm ? 'ሁሉንም ተመለሰ ብለህ መዝግብ' : 'Mark All Returned & Scan Next'}</button></div>`
+        }
+      </div>`
+    : `<div class="scan-box">
+        <strong>📷 ${isAm ? 'የአባል QR ይቃኙ (ምንም አባል አልተመረጠም!)' : 'Scan Member QR (Zero Default Preselection!)'}</strong>
+        <p class="muted">${isAm ? 'ስህተት እንዳይፈጠር ስርዓቱ በራሱ የመጀመሪያውን አባል አይመርጥም።' : 'Strict P0 rule: system never auto-selects the first cached member.'}</p>
+        <div class="ctrl-group" style="justify-content:center;margin-top:8px">
+          <button class="btn accent" onclick="selectRapidMember('SSMS-1042','ሰላማዊት ተስፋዬ','M')">⚡ ${isAm ? 'የሙከራ QR ስካን: SSMS-1042' : 'Simulate QR Scan: SSMS-1042'}</button>
+        </div>
+      </div>`;
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <strong>⚡ ${isAm ? 'Meskel Choir Event — ጣቢያ A' : 'Meskel Choir Event — Station A'}</strong>
+        <div class="ctrl-group">
+          <button class="btn ${rapidMode==='issue'?'primary':''}" onclick="rapidMode='issue';renderAll()">${isAm ? 'መስጫ (Issue)' : 'Issue Mode'}</button>
+          <button class="btn ${rapidMode==='return'?'primary':''}" onclick="rapidMode='return';renderAll()">${isAm ? 'መመለሻ (Return)' : 'Return Mode'}</button>
+          <span class="pill ok">${isAm ? 'የተመዘገቡ' : 'Processed'}: ${rapidIssued}</span>
+        </div>
+      </div>
+      ${memberCard}
+    </div>`;
+}
+
+function renderMobile() {
+  const isAm = lang === 'am';
+  const el = document.getElementById('phoneContent');
+  if (currentScreen === 'rapid') {
+    el.innerHTML = renderRapidHtml(isAm);
+  } else if (currentScreen === 'handover') {
+    el.innerHTML = `<div class="card"><strong>✍️ ${isAm ? 'ቁጥጥር ያለበት ርክክብ' : 'Controlled Handover'}</strong>
+      <p class="muted">${isAm ? '1. የንብረት QR ስካን → 2. የአባል QR/መታወቂያ ማረጋገጫ → 3. ፊርማ + Auth-Bound BiometricPrompt' : '1. Scan Asset QR → 2. Verify Immutable Member ID → 3. Drawn Sig + Auth-Bound Keystore'}</p>
+      <button class="btn primary tap-btn">${isAm ? 'በጣት አሻራ አረጋግጥና ላክ' : 'Authenticate Biometric & Submit'}</button></div>`;
+  } else {
+    el.innerHTML = `<div class="card"><strong>${isAm ? 'የመስክ ሥራ መነሻ' : 'Field Worker Home'}</strong>
+      <p class="muted">${isAm ? 'የተመሰጠረ SQLCipher ከመስመር ውጭ ማከማቻ · የ4xx ስህተቶች አይደበቁም' : 'Encrypted SQLCipher local store · 4xx rejections never hidden as offline'}</p>
+      <button class="btn accent tap-btn" onclick="openMobile('rapid')">⚡ ${isAm ? 'ፈጣን የጣቢያ ስካን ጀምር' : 'Start Rapid Event Station'}</button></div>`;
+  }
+}
+
+function selectRapidMember(id, name, size) {
+  rapidMember = { id, name, size };
+  renderAll();
+}
+function confirmRapidTx() {
+  rapidIssued++;
+  rapidMember = null; // Auto-reset ready for next member scan!
+  document.getElementById('phoneSyncPill').textContent = `Ready Offline · ${rapidIssued} queued`;
+  renderAll();
+}
+function openScreen(s, btn) {
+  currentScreen = s;
+  if (btn) {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  renderAll();
+}
+function openMobile(s, btn) {
+  currentScreen = s;
+  if (btn) {
+    document.querySelectorAll('.phone-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  renderAll();
+}
+function setViewport(v) {
+  const isMob = v === 'mobile';
+  document.getElementById('desktopShell').classList.toggle('hidden', isMob);
+  document.getElementById('phoneWrap').classList.toggle('active', isMob);
+  document.getElementById('btnDesktop').classList.toggle('primary', !isMob);
+  document.getElementById('btnMobile').classList.toggle('primary', isMob);
+  renderAll();
+}
+function toggleLang() {
+  lang = lang === 'am' ? 'en' : 'am';
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach(node => {
+    const k = node.getAttribute('data-i18n');
+    if (T[lang][k]) node.textContent = T[lang][k];
+  });
+  renderAll();
+}
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  document.getElementById('btnTheme').textContent = 'Theme: ' + (next === 'dark' ? 'Dark' : 'Light');
+}
+function renderAll() {
+  renderDesktop();
+  renderMobile();
+}
+renderAll();
+</script>
+</body>
+</html>

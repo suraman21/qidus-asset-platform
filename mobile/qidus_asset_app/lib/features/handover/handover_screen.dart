@@ -1,18 +1,26 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:signature/signature.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/config/app_config.dart';
 import '../../core/security/keystore_channel.dart';
 import '../../core/storage/local_db.dart';
 
 class HandoverScreen extends StatefulWidget {
   final ApiClient api;
+  final String lang;
   final VoidCallback onQueued;
 
-  const HandoverScreen({super.key, required this.api, required this.onQueued});
+  const HandoverScreen({
+    super.key,
+    required this.api,
+    required this.lang,
+    required this.onQueued,
+  });
 
   @override
   State<HandoverScreen> createState() => _HandoverScreenState();
@@ -20,18 +28,21 @@ class HandoverScreen extends StatefulWidget {
 
 class _HandoverScreenState extends State<HandoverScreen> {
   final _receiverCtrl = TextEditingController();
+  final _memberSearchCtrl = TextEditingController();
   final _qtyCtrl = TextEditingController(text: '1');
   final _sigCtrl = SignatureController(penStrokeWidth: 2.5, penColor: Colors.black, exportBackgroundColor: Colors.white);
   final _keystore = KeystoreChannel();
 
   List<Map<String, dynamic>> _assets = [];
   List<Map<String, dynamic>> _members = [];
-  int? _selectedAssetId;
-  String? _selectedMemberExtId;
+  int? _selectedAssetId; // NEVER preselect
+  String? _selectedMemberExtId; // NEVER preselect
+  bool _nonMemberCustody = false;
   String _handoverType = 'issue';
   bool _useBiometricKeystore = true;
   bool _busy = false;
   String? _message;
+  bool _isError = false;
 
   @override
   void initState() {
@@ -42,6 +53,7 @@ class _HandoverScreenState extends State<HandoverScreen> {
   @override
   void dispose() {
     _receiverCtrl.dispose();
+    _memberSearchCtrl.dispose();
     _qtyCtrl.dispose();
     _sigCtrl.dispose();
     super.dispose();
@@ -54,25 +66,53 @@ class _HandoverScreenState extends State<HandoverScreen> {
     setState(() {
       _assets = assets;
       _members = members;
-      if (_assets.isNotEmpty) _selectedAssetId ??= _assets.first['id'] as int;
     });
   }
 
+  Future<void> _filterMembers(String q) async {
+    final rows = await LocalDb.instance.searchMembers(q);
+    if (!mounted) return;
+    setState(() => _members = rows);
+  }
+
   Future<void> _submit() async {
-    if (_selectedAssetId == null || _receiverCtrl.text.trim().isEmpty) {
-      setState(() => _message = 'Select an asset and enter recipient display name.');
+    final s = AppStrings(widget.lang);
+    if (_selectedAssetId == null) {
+      setState(() {
+        _message = s.isAm ? 'እባክዎ ንብረት ይምረጡ።' : 'Please select an asset first.';
+        _isError = true;
+      });
+      return;
+    }
+    if (!_nonMemberCustody && (_selectedMemberExtId == null || _selectedMemberExtId!.isEmpty)) {
+      setState(() {
+        _message = s.isAm
+            ? 'የአባል መታወቂያ (SSMS) መምረጥ ግዴታ ነው ወይም "አባል ያልሆነ" ይምረጡ።'
+            : 'Immutable SSMS member selection is required (or toggle explicit non-member custody).';
+        _isError = true;
+      });
+      return;
+    }
+    if (_receiverCtrl.text.trim().isEmpty) {
+      setState(() {
+        _message = s.isAm ? 'የተቀባዩ ስም ያስፈልጋል።' : 'Recipient display name is required.';
+        _isError = true;
+      });
       return;
     }
 
     setState(() {
       _busy = true;
       _message = null;
+      _isError = false;
     });
 
     try {
       final qty = (int.tryParse(_qtyCtrl.text.trim()) ?? 1).clamp(1, 10000);
       final txUuid = const Uuid().v4();
       final deviceUuid = await _keystore.getOrCreateDeviceUuid();
+      final txTime = DateTime.now().toUtc().toIso8601String();
+      final user = await widget.api.getSavedUser();
 
       String? receiverSigB64;
       if (_sigCtrl.isNotEmpty) {
@@ -85,9 +125,14 @@ class _HandoverScreenState extends State<HandoverScreen> {
       String? canonicalPayload;
       String? biometricSigB64;
       if (_useBiometricKeystore) {
-        final authed = await _keystore.authenticateBiometric(reason: 'Confirm asset $_handoverType handover');
-        if (!authed) {
-          setState(() => _message = 'Biometric confirmation cancelled.');
+        final avail = await _keystore.isBiometricOrCredentialAvailable();
+        if (!avail) {
+          setState(() {
+            _message = s.isAm
+                ? 'ባዮሜትሪክ ወይም የስልክ መቆለፊያ ሳይኖር የKeystore ፊርማ አይፈቀድም።'
+                : 'Device biometric or lock-screen authentication is required for Keystore signing.';
+            _isError = true;
+          });
           return;
         }
         canonicalPayload = KeystoreChannel.buildCanonicalPayload(
@@ -97,8 +142,22 @@ class _HandoverScreenState extends State<HandoverScreen> {
           receiverName: _receiverCtrl.text.trim(),
           clientTxUuid: txUuid,
           deviceUuid: deviceUuid,
+          actorUserId: user?['uid'] as int?,
+          externalMemberId: _selectedMemberExtId,
+          deviceTxAt: txTime,
         );
-        biometricSigB64 = await _keystore.signCanonicalPayload(canonicalPayload);
+        biometricSigB64 = await _keystore.signCanonicalPayload(
+          canonicalPayload,
+          reason: 'Sign $_handoverType handover for ${_receiverCtrl.text.trim()}',
+        );
+      } else if (receiverSigB64 == null) {
+        setState(() {
+          _message = s.isAm
+              ? 'ቢያንስ የተቀባይ ፊርማ ወይም የKeystore ባዮሜትሪክ ያስፈልጋል።'
+              : 'Provide either a drawn recipient signature or Keystore biometric signature.';
+          _isError = true;
+        });
+        return;
       }
 
       final method = (receiverSigB64 != null && biometricSigB64 != null)
@@ -108,13 +167,15 @@ class _HandoverScreenState extends State<HandoverScreen> {
       final payload = <String, dynamic>{
         'asset_id': _selectedAssetId,
         'handover_type': _handoverType,
-        'receiver_member_external_id': _selectedMemberExtId,
+        if (_selectedMemberExtId != null) 'receiver_member_external_id': _selectedMemberExtId,
+        if (_nonMemberCustody) 'non_member_custody': true,
+        'require_member_binding': !_nonMemberCustody,
         'receiver_display_name': _receiverCtrl.text.trim(),
         'quantity': qty,
         'verification_method': method,
         'device_uuid': deviceUuid,
         'client_tx_uuid': txUuid,
-        'device_tx_at': DateTime.now().toUtc().toIso8601String(),
+        'device_tx_at': txTime,
         if (receiverSigB64 != null) 'receiver_sig_b64': receiverSigB64,
         if (canonicalPayload != null) 'canonical_payload': canonicalPayload,
         if (biometricSigB64 != null) 'biometric_sig_b64': biometricSigB64,
@@ -129,30 +190,76 @@ class _HandoverScreenState extends State<HandoverScreen> {
           deviceUuid: deviceUuid,
         );
         final handoverObj = (res['handover'] as Map?) ?? res;
-        if (mounted) setState(() => _message = 'Handover synced: ${handoverObj['handover_number'] ?? txUuid}');
-      } catch (_) {
-        await LocalDb.instance.enqueueOutbox(
-          clientTxUuid: txUuid,
-          actionType: 'handover',
-          endpoint: '/handovers',
-          payload: payload,
-        );
-        widget.onQueued();
-        if (mounted) setState(() => _message = 'Offline: signed handover queued in durable outbox.');
+        final delta = _handoverType == 'issue' ? -qty : (_handoverType == 'transfer' ? 0 : qty);
+        if (delta != 0) await LocalDb.instance.adjustLocalAssetQty(_selectedAssetId!, delta);
+        _sigCtrl.clear();
+        if (mounted) {
+          setState(() {
+            _message = 'Handover synced: ${handoverObj['handover_number'] ?? txUuid}';
+            _isError = false;
+          });
+        }
+      } on ApiException catch (e) {
+        // Strict error separation: 4xx business/auth errors are NEVER queued as offline!
+        if (e.statusCode >= 400 && e.statusCode < 500) {
+          if (mounted) {
+            setState(() {
+              _message = 'Rejected by server (${e.statusCode}): ${e.message}';
+              _isError = true;
+            });
+          }
+        } else {
+          await _queueOffline(txUuid, payload, qty);
+        }
+      } on SocketException {
+        await _queueOffline(txUuid, payload, qty);
+      } catch (e) {
+        // Only transient transport failures go to offline queue
+        if (e.toString().contains('TimeoutException') || e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
+          await _queueOffline(txUuid, payload, qty);
+        } else {
+          if (mounted) {
+            setState(() {
+              _message = 'Error: $e';
+              _isError = true;
+            });
+          }
+        }
       }
-
-      final delta = _handoverType == 'issue' ? -qty : (_handoverType == 'transfer' ? 0 : qty);
-      if (delta != 0) await LocalDb.instance.adjustLocalAssetQty(_selectedAssetId!, delta);
-      _sigCtrl.clear();
     } catch (e) {
-      if (mounted) setState(() => _message = 'Error: $e');
+      if (mounted) {
+        setState(() {
+          _message = 'Signing failed: $e';
+          _isError = true;
+        });
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  Future<void> _queueOffline(String txUuid, Map<String, dynamic> payload, int qty) async {
+    await LocalDb.instance.enqueueOutbox(
+      clientTxUuid: txUuid,
+      actionType: 'handover',
+      endpoint: '/handovers',
+      payload: payload,
+    );
+    final delta = _handoverType == 'issue' ? -qty : (_handoverType == 'transfer' ? 0 : qty);
+    if (delta != 0) await LocalDb.instance.adjustLocalAssetQty(_selectedAssetId!, delta);
+    _sigCtrl.clear();
+    widget.onQueued();
+    if (mounted) {
+      setState(() {
+        _message = 'Network unreachable: signed handover queued in encrypted outbox.';
+        _isError = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings(widget.lang);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -162,11 +269,12 @@ class _HandoverScreenState extends State<HandoverScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('Custody Handover / Return', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                Text(s.handoverTab, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
                   value: _selectedAssetId,
-                  decoration: const InputDecoration(labelText: 'Asset', border: OutlineInputBorder(), isDense: true),
+                  hint: Text(s.selectAsset),
+                  decoration: InputDecoration(labelText: s.selectAsset, border: const OutlineInputBorder(), isDense: true),
                   items: _assets
                       .map((a) => DropdownMenuItem<int>(
                             value: a['id'] as int,
@@ -176,21 +284,43 @@ class _HandoverScreenState extends State<HandoverScreen> {
                   onChanged: (v) => setState(() => _selectedAssetId = v),
                 ),
                 const SizedBox(height: 10),
-                if (_members.isNotEmpty) ...[
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(s.nonMemberToggle),
+                  value: _nonMemberCustody,
+                  onChanged: (v) => setState(() {
+                    _nonMemberCustody = v;
+                    if (v) _selectedMemberExtId = null;
+                  }),
+                ),
+                if (!_nonMemberCustody) ...[
+                  TextField(
+                    controller: _memberSearchCtrl,
+                    decoration: InputDecoration(
+                      labelText: s.isAm ? 'የSSMS አባል ፈልግ' : 'Filter SSMS member by name/code',
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    onChanged: _filterMembers,
+                  ),
+                  const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     value: _selectedMemberExtId,
-                    decoration: const InputDecoration(labelText: 'Synced Member (optional)', border: OutlineInputBorder(), isDense: true),
+                    hint: Text(s.selectMember),
+                    decoration: InputDecoration(labelText: s.selectMember, border: const OutlineInputBorder(), isDense: true),
                     items: _members
                         .map((m) => DropdownMenuItem<String>(
                               value: m['external_member_id'] as String,
-                              child: Text('${m['name_en']} (${m['clothing_size'] ?? 'No size'})'),
+                              child: Text('${m['name_en']} (${m['member_code'] ?? m['external_member_id']})'),
                             ))
                         .toList(),
                     onChanged: (v) {
                       setState(() {
                         _selectedMemberExtId = v;
-                        final match = _members.firstWhere((m) => m['external_member_id'] == v);
-                        _receiverCtrl.text = (match['name_en'] ?? '').toString();
+                        if (v != null) {
+                          final match = _members.firstWhere((m) => m['external_member_id'] == v);
+                          _receiverCtrl.text = (match['name_en'] ?? '').toString();
+                        }
                       });
                     },
                   ),
@@ -224,20 +354,21 @@ class _HandoverScreenState extends State<HandoverScreen> {
                 const SizedBox(height: 10),
                 TextField(
                   controller: _receiverCtrl,
+                  readOnly: !_nonMemberCustody && _selectedMemberExtId != null,
                   decoration: const InputDecoration(labelText: 'Recipient Display Name', border: OutlineInputBorder(), isDense: true),
                 ),
                 const SizedBox(height: 10),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Sign with Android Keystore Biometric (EC P-256)'),
+                  title: Text(s.isAm ? 'በAndroid Keystore ባዮሜትሪክ ፈርም (EC P-256)' : 'Auth-Bound Android Keystore Biometric (EC P-256)'),
                   value: _useBiometricKeystore,
                   onChanged: (v) => setState(() => _useBiometricKeystore = v),
                 ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Drawn Recipient Signature', style: TextStyle(fontWeight: FontWeight.w600)),
-                    TextButton(onPressed: () => _sigCtrl.clear(), child: const Text('Clear')),
+                    Text(s.isAm ? 'የተቀባይ ፊርማ' : 'Drawn Recipient Signature', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    TextButton(onPressed: () => _sigCtrl.clear(), child: Text(s.isAm ? 'አጽዳ' : 'Clear')),
                   ],
                 ),
                 Container(
@@ -250,15 +381,24 @@ class _HandoverScreenState extends State<HandoverScreen> {
                   child: Signature(controller: _sigCtrl, backgroundColor: Colors.white),
                 ),
                 const SizedBox(height: 14),
-                FilledButton(
-                  onPressed: _busy ? null : _submit,
-                  child: _busy
-                      ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Text('Confirm Signed Handover'),
+                SizedBox(
+                  height: 50,
+                  child: FilledButton(
+                    onPressed: _busy ? null : _submit,
+                    child: _busy
+                        ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : Text(s.confirmHandover),
+                  ),
                 ),
                 if (_message != null) ...[
                   const SizedBox(height: 10),
-                  Text(_message!, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    _message!,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: _isError ? Colors.redAccent : Colors.green,
+                    ),
+                  ),
                 ],
               ],
             ),

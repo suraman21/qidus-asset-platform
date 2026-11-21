@@ -286,29 +286,75 @@ final class AssetLifecycleService
 
         $stations = $pdo->prepare('SELECT * FROM qa_event_stations WHERE event_id = :eid AND is_active = 1 ORDER BY id ASC');
         $stations->execute([':eid' => $eventId]);
+        $stationRows = $stations->fetchAll();
 
         $allocs = $pdo->prepare(
-            'SELECT al.*, a.asset_code, a.name_en, a.name_am, a.qr_token
+            'SELECT al.*, a.asset_code, a.name_en, a.name_am, a.qr_token,
+                    v.variant_code, v.size_label, v.color_label
              FROM qa_event_allocations al
              JOIN qa_assets a ON a.id = al.asset_id
+             LEFT JOIN qa_asset_variants v ON v.id = al.variant_id
              WHERE al.event_id = :eid
              ORDER BY al.id ASC'
         );
         $allocs->execute([':eid' => $eventId]);
+        $allocRows = $allocs->fetchAll();
 
         $parts = $pdo->prepare(
-            'SELECT p.*, m.external_member_id, m.member_code, m.name_en, m.name_am, m.section_name
+            'SELECT p.*, m.external_member_id, m.member_code, m.name_en, m.name_am, m.section_name,
+                    mp.clothing_size, mp.shoe_size
              FROM qa_event_participants p
              JOIN qa_member_sync_cache m ON m.id = p.member_cache_id
-             WHERE p.event_id = :eid AND m.is_tombstoned = 0'
+             LEFT JOIN qa_member_asset_profiles mp ON mp.member_cache_id = m.id
+             WHERE p.event_id = :eid AND m.is_tombstoned = 0
+             ORDER BY m.name_en ASC'
         );
         $parts->execute([':eid' => $eventId]);
+        $partRows = $parts->fetchAll();
+
+        $outStmt = $pdo->prepare(
+            "SELECT t.member_cache_id, t.asset_id, t.variant_id,
+                    a.asset_code, a.name_en AS asset_name,
+                    SUM(CASE WHEN t.tx_type = 'issue' THEN t.quantity ELSE 0 END) AS issued_qty,
+                    SUM(CASE WHEN t.tx_type IN ('return','partial_return') THEN t.quantity ELSE 0 END) AS returned_qty
+             FROM qa_event_transactions t
+             JOIN qa_assets a ON a.id = t.asset_id
+             WHERE t.event_id = :eid
+             GROUP BY t.member_cache_id, t.asset_id, t.variant_id, a.asset_code, a.name_en
+             HAVING issued_qty > returned_qty"
+        );
+        $outStmt->execute([':eid' => $eventId]);
+        $outstandingRows = [];
+        foreach ($outStmt->fetchAll() as $row) {
+            $row['outstanding_qty'] = max(0, (int)$row['issued_qty'] - (int)$row['returned_qty']);
+            if ($row['outstanding_qty'] > 0) {
+                $outstandingRows[] = $row;
+            }
+        }
+
+        $manifestSeed = json_encode([
+            'event_id' => (int)$event['id'],
+            'stations' => count($stationRows),
+            'allocations' => count($allocRows),
+            'participants' => count($partRows),
+            'outstanding' => count($outstandingRows),
+        ], JSON_UNESCAPED_UNICODE);
 
         return [
             'event' => $event,
-            'stations' => $stations->fetchAll(),
-            'allocations' => $allocs->fetchAll(),
-            'participants' => $parts->fetchAll(),
+            'stations' => $stationRows,
+            'allocations' => $allocRows,
+            'participants' => $partRows,
+            'outstanding_by_member' => $outstandingRows,
+            'manifest' => [
+                'version' => 2,
+                'station_count' => count($stationRows),
+                'allocation_count' => count($allocRows),
+                'participant_count' => count($partRows),
+                'outstanding_count' => count($outstandingRows),
+                'sha256' => hash('sha256', (string)$manifestSeed),
+                'generated_at_utc' => gmdate('c'),
+            ],
         ];
     }
 

@@ -1,11 +1,12 @@
 <?php
 declare(strict_types=1);
 
+use QidusAsset\Database\Connection;
 use QidusAsset\Security\Rbac;
 use QidusAsset\Support\EthiopianCalendar;
 
 /**
- * Shared Light/Dark Mode Bilingual Web Shell (`docs/04_UI_UX_DESIGN_SYSTEM.md`).
+ * Shared Light/Dark Mode Bilingual Web Shell (`docs/04_UI_UX_DESIGN_SYSTEM.md` & `docs/07`).
  *
  * @param array<string,mixed> $user
  * @param callable():void $renderBody
@@ -15,8 +16,8 @@ function qaRenderShell(string $pageTitle, string $activePage, array $user, calla
     $lang = qaLang();
     $ethToday = EthiopianCalendar::today((string)qa_config('timezone'));
     $schoolName = qaSchoolTitle();
-    $primaryColor = (string)qa_config('theme.primary', '#4cc9f0');
-    $accentColor = (string)qa_config('theme.accent', '#7b2cbf');
+    $primaryColor = (string)qa_config('theme.primary', '#3b82f6');
+    $accentColor = (string)qa_config('theme.accent', '#f59e0b');
     $role = (string)$user['role'];
     $canAsset = Rbac::can($role, 'asset.read');
     $canFinance = Rbac::can($role, 'finance.read') || Rbac::can($role, 'document.read');
@@ -24,6 +25,40 @@ function qaRenderShell(string $pageTitle, string $activePage, array $user, calla
     $displayName = ($lang === 'am' && !empty($user['full_name_am']))
         ? (string)$user['full_name_am']
         : (string)$user['full_name'];
+    $activeTab = (string)($_GET['tab'] ?? '');
+    $activeQuery = (string)($_GET['q'] ?? '');
+
+    // Load active operational year & user notifications safely
+    $activeYearLabel = $ethToday['year'] . ' EC';
+    $notifications = [];
+    $unreadCount = 0;
+    try {
+        $pdo = Connection::get();
+        $yr = $pdo->query("SELECT label_en, label_am FROM qa_operational_years WHERE status = 'active' ORDER BY ec_year DESC LIMIT 1")->fetch();
+        if ($yr) {
+            $activeYearLabel = $lang === 'am' && !empty($yr['label_am']) ? (string)$yr['label_am'] : (string)$yr['label_en'];
+        }
+        $nStmt = $pdo->prepare(
+            'SELECT id, type, title, message, is_read, created_at
+             FROM qa_notifications
+             WHERE recipient_user_id = :u
+             ORDER BY is_read ASC, id DESC
+             LIMIT 10'
+        );
+        $nStmt->execute([':u' => (int)$user['uid']]);
+        $notifications = $nStmt->fetchAll();
+        foreach ($notifications as $n) {
+            if ((int)$n['is_read'] === 0) {
+                $unreadCount++;
+            }
+        }
+    } catch (\Throwable $e) {
+        // Non-fatal fallback
+    }
+
+    $searchTargetPage = ($activePage === 'finance' || (!$canAsset && $canFinance)) ? 'finance' : 'asset';
+    $searchTargetTab = $searchTargetPage === 'finance' ? 'documents' : 'inventory';
+    $currentUri = 'index.php' . (!empty($_SERVER['QUERY_STRING']) ? '?' . (string)$_SERVER['QUERY_STRING'] : '');
     ?>
 <!DOCTYPE html>
 <html lang="<?= e($lang) ?>" data-theme="dark">
@@ -57,15 +92,42 @@ function qaRenderShell(string $pageTitle, string $activePage, array $user, calla
           </a>
         <?php endif; ?>
         <?php if ($canAsset): ?>
-          <a class="qa-nav-link <?= $activePage === 'asset' ? 'active' : '' ?>" href="index.php?page=asset">
+          <a class="qa-nav-link <?= $activePage === 'asset' && ($activeTab === '' || $activeTab === 'inventory') ? 'active' : '' ?>" href="index.php?page=asset">
             <span><?= e(qaT('nav.asset')) ?></span>
             <span class="qa-badge success"><?= e(qaT('badge.dept1')) ?></span>
           </a>
+          <a class="qa-nav-link qa-nav-sub <?= $activePage === 'asset' && $activeTab === 'handovers' ? 'active' : '' ?>" href="index.php?page=asset&amp;tab=handovers">
+            <span><?= e(qaT('task.custody')) ?></span>
+          </a>
+          <a class="qa-nav-link qa-nav-sub <?= $activePage === 'asset' && $activeTab === 'requests' ? 'active' : '' ?>" href="index.php?page=asset&amp;tab=requests">
+            <span><?= e(qaT('task.requests')) ?></span>
+          </a>
+          <a class="qa-nav-link qa-nav-sub <?= $activePage === 'asset' && $activeTab === 'events' ? 'active' : '' ?>" href="index.php?page=asset&amp;tab=events">
+            <span><?= e(qaT('task.events')) ?></span>
+          </a>
+          <a class="qa-nav-link qa-nav-sub <?= $activePage === 'asset' && $activeTab === 'maintenance' ? 'active' : '' ?>" href="index.php?page=asset&amp;tab=maintenance">
+            <span><?= e(qaT('task.maintenance')) ?></span>
+          </a>
+          <a class="qa-nav-link qa-nav-sub <?= $activePage === 'asset' && $activeTab === 'reports' ? 'active' : '' ?>" href="index.php?page=asset&amp;tab=reports">
+            <span><?= e(qaT('task.reports')) ?></span>
+          </a>
         <?php endif; ?>
         <?php if ($canFinance): ?>
-          <a class="qa-nav-link <?= $activePage === 'finance' ? 'active' : '' ?>" href="index.php?page=finance">
+          <a class="qa-nav-link <?= $activePage === 'finance' && ($activeTab === '' || $activeTab === 'ledger') ? 'active' : '' ?>" href="index.php?page=finance">
             <span><?= e(qaT('nav.finance')) ?></span>
             <span class="qa-badge warning"><?= e(qaT('badge.dept2')) ?></span>
+          </a>
+          <a class="qa-nav-link qa-nav-sub <?= $activePage === 'finance' && $activeTab === 'budgets' ? 'active' : '' ?>" href="index.php?page=finance&amp;tab=budgets">
+            <span><?= e(qaT('task.budgets')) ?></span>
+          </a>
+          <a class="qa-nav-link qa-nav-sub <?= $activePage === 'finance' && $activeTab === 'reconcile' ? 'active' : '' ?>" href="index.php?page=finance&amp;tab=reconcile">
+            <span><?= e(qaT('task.reconcile')) ?></span>
+          </a>
+          <a class="qa-nav-link qa-nav-sub <?= $activePage === 'finance' && $activeTab === 'procurement' ? 'active' : '' ?>" href="index.php?page=finance&amp;tab=procurement">
+            <span><?= e(qaT('task.procurement')) ?></span>
+          </a>
+          <a class="qa-nav-link qa-nav-sub <?= $activePage === 'finance' && $activeTab === 'documents' ? 'active' : '' ?>" href="index.php?page=finance&amp;tab=documents">
+            <span><?= e(qaT('task.vault')) ?></span>
           </a>
         <?php endif; ?>
       </div>
@@ -88,6 +150,7 @@ function qaRenderShell(string $pageTitle, string $activePage, array $user, calla
       <div class="qa-sidebar-footer">
         <div><strong><?= e($ethToday['formatted_am']) ?></strong></div>
         <div><?= e($ethToday['formatted_en']) ?></div>
+        <div style="margin-top:4px;"><span class="qa-badge info"><?= e(qaT('topbar.year_active')) ?>: <?= e($activeYearLabel) ?></span></div>
       </div>
     </aside>
 
@@ -97,11 +160,51 @@ function qaRenderShell(string $pageTitle, string $activePage, array $user, calla
           <button id="qaMobileMenuBtn" type="button" class="qa-btn qa-mobile-toggle" aria-label="Toggle menu">☰</button>
           <div>
             <h1 class="qa-topbar-title"><?= e($pageTitle) ?></h1>
-            <div class="qa-topbar-sub"><?= e(qaT('topbar.mode')) ?>: <?= e((string)qa_config('integration_mode', 'standalone')) ?> · <?= e(qaT('topbar.role')) ?>: <?= e($role) ?></div>
+            <div class="qa-topbar-sub"><?= e(qaT('topbar.mode')) ?>: <?= e((string)qa_config('integration_mode', 'standalone')) ?> · <?= e(qaT('topbar.role')) ?>: <?= e($role) ?> · <?= e($ethToday['formatted_am']) ?></div>
           </div>
         </div>
 
+        <?php if ($canAsset || $canFinance): ?>
+          <form method="get" action="index.php" class="qa-global-search">
+            <input type="hidden" name="page" value="<?= e($searchTargetPage) ?>">
+            <input type="hidden" name="tab" value="<?= e($searchTargetTab) ?>">
+            <input type="search" name="q" value="<?= e($activeQuery) ?>" class="qa-input" placeholder="<?= e(qaT('topbar.search_ph')) ?>" aria-label="<?= e(qaT('topbar.search_ph')) ?>">
+            <button type="submit" class="qa-btn"><?= e(qaT('topbar.search_btn')) ?></button>
+          </form>
+        <?php endif; ?>
+
         <div class="qa-topbar-actions">
+          <div class="qa-notif-wrap">
+            <button id="qaNotifToggle" type="button" class="qa-btn" aria-expanded="false" aria-label="<?= e(qaT('topbar.notif')) ?>">
+              🔔 <?php if ($unreadCount > 0): ?><span class="qa-badge warning"><?= $unreadCount ?></span><?php endif; ?>
+            </button>
+            <div id="qaNotifPanel" class="qa-notif-panel" role="region" aria-label="<?= e(qaT('topbar.notif')) ?>">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <strong><?= e(qaT('topbar.notif')) ?></strong>
+                <?php if ($unreadCount > 0): ?>
+                  <form method="post" action="index.php?action=mark_notif_read" style="margin:0;">
+                    <input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>">
+                    <input type="hidden" name="notification_id" value="0">
+                    <input type="hidden" name="return_to" value="<?= e($currentUri) ?>">
+                    <button type="submit" class="qa-btn" style="padding:4px 8px;font-size:11px;"><?= e(qaT('topbar.notif_mark_all')) ?></button>
+                  </form>
+                <?php endif; ?>
+              </div>
+              <?php if ($notifications === []): ?>
+                <div style="font-size:12px;color:var(--text-muted);"><?= e(qaT('topbar.notif_empty')) ?></div>
+              <?php else: ?>
+                <?php foreach ($notifications as $n): ?>
+                  <div class="qa-notif-item <?= (int)$n['is_read'] === 0 ? 'unread' : '' ?>">
+                    <div style="font-weight:700;"><?= e((string)$n['title']) ?></div>
+                    <div style="color:var(--text-secondary);"><?= e((string)$n['message']) ?></div>
+                  </div>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </div>
+          </div>
+
+          <button id="qaPrintBtn" type="button" class="qa-btn" title="<?= e(qaT('topbar.print')) ?>">🖨️ <?= e(qaT('topbar.print')) ?></button>
+
           <div class="qa-lang-switch" role="group" aria-label="Language switcher">
             <a class="qa-lang-pill <?= $lang === 'am' ? 'active' : '' ?>" href="<?= e(qaLangSwitchUrl('am')) ?>">አማርኛ</a>
             <a class="qa-lang-pill <?= $lang === 'en' ? 'active' : '' ?>" href="<?= e(qaLangSwitchUrl('en')) ?>">EN</a>

@@ -80,12 +80,26 @@ function qaT(string $key): string
     static $dict = [
         'brand.sub' => ['am' => 'እያንዳንዱ ብር፣ ንብረትና ሰነድ ተመዝግቦ ይጠበቃል።', 'en' => 'Every Birr, Asset & Document'],
         'nav.departments' => ['am' => 'ክፍሎች', 'en' => 'Departments'],
+        'nav.work' => ['am' => 'የዕለት ተግባራት', 'en' => 'Daily Workspaces'],
         'nav.executive' => ['am' => 'አመራር እና ኦዲት', 'en' => 'Executive & Audit'],
         'nav.asset' => ['am' => 'የንብረት ክፍል', 'en' => 'Asset Department'],
         'nav.finance' => ['am' => 'በጀት፣ ፋይናንስና ሰነድ', 'en' => 'Finance, Proc. & Docs'],
         'nav.account' => ['am' => 'የመለያ አስተዳደር', 'en' => 'Account'],
         'nav.profile' => ['am' => 'የግል መገለጫ', 'en' => 'My Profile'],
         'nav.signout' => ['am' => 'ውጣ', 'en' => 'Sign Out'],
+
+        // Task-first sidebar shortcuts
+        'task.asset_register' => ['am' => 'ንብረቶች እና ምዝገባ', 'en' => 'Assets & Register'],
+        'task.custody' => ['am' => 'ርክክብ እና አባላት', 'en' => 'Handovers & Members'],
+        'task.requests' => ['am' => 'ጥያቄዎች እና ማጽደቅ', 'en' => 'Requests & Approvals'],
+        'task.events' => ['am' => 'ዝግጅቶች እና ጣቢያዎች', 'en' => 'Events & Stations'],
+        'task.maintenance' => ['am' => 'ጥገና፣ ቆጠራ እና ማስወገጃ', 'en' => 'Maint, Inspect & Dispose'],
+        'task.reports' => ['am' => 'ሪፖርቶች እና ማዋቀሪያ', 'en' => 'Reports & Setup'],
+        'task.ledger' => ['am' => 'ገቢ እና ወጪ መዝገብ', 'en' => 'Income & Expense Ledger'],
+        'task.budgets' => ['am' => 'በጀት እና ማሻሻያ', 'en' => 'Budgets & Amendments'],
+        'task.reconcile' => ['am' => 'ባንክ እና የአባላት መዋጮ', 'en' => 'Bank & Contributions'],
+        'task.procurement' => ['am' => 'ግዥ (PR · PO · GRN)', 'en' => 'Procurement Cycle'],
+        'task.vault' => ['am' => 'የሰነድ ካዝና እና ሪፖርት', 'en' => 'Document Vault & Reports'],
 
         'badge.gov' => ['am' => 'አመራር', 'en' => 'Gov'],
         'badge.dept1' => ['am' => 'ክፍል 1', 'en' => 'Dept 1'],
@@ -98,6 +112,13 @@ function qaT(string $key): string
         'topbar.switch' => ['am' => 'ቀይር', 'en' => 'Switch'],
         'topbar.light_mode' => ['am' => '☀️ ብርሃን', 'en' => '☀️ Light Mode'],
         'topbar.dark_mode' => ['am' => '🌙 ጨለማ', 'en' => '🌙 Dark Mode'],
+        'topbar.search_ph' => ['am' => 'ፈልግ (ኮድ፣ ስም፣ QR፣ PR፣ ሰነድ)...', 'en' => 'Quick search (code, QR, member, PR, doc)...'],
+        'topbar.search_btn' => ['am' => 'ፈልግ', 'en' => 'Find'],
+        'topbar.notif' => ['am' => 'ማሳወቂያዎች', 'en' => 'Notifications'],
+        'topbar.notif_empty' => ['am' => 'አዲስ ማሳወቂያ የለም', 'en' => 'No notifications yet'],
+        'topbar.notif_mark_all' => ['am' => 'ሁሉንም አንብቤያለሁ', 'en' => 'Mark all read'],
+        'topbar.print' => ['am' => 'አትም', 'en' => 'Print'],
+        'topbar.year_active' => ['am' => 'ንቁ ዓመት', 'en' => 'Active Year'],
         'topbar.impersonating' => ['am' => 'የሚና መለዋወጫ በሥራ ላይ ነው፦ እንደ', 'en' => 'Impersonation Mode Active: Viewing platform as'],
         'topbar.return_admin' => ['am' => 'ወደ system_admin ተመለስ', 'en' => 'Return to system_admin'],
 
@@ -111,7 +132,7 @@ function qaT(string $key): string
         'auth.username' => ['am' => 'የተጠቃሚ ስም', 'en' => 'Username'],
         'auth.password' => ['am' => 'የይለፍ ቃል', 'en' => 'Password'],
         'auth.username_ph' => ['am' => 'የተጠቃሚ ስምዎን ያስገቡ', 'en' => 'Enter your username'],
-        'auth.motto' => ['am' => '«እያንዳንዱ ብር፣ እያንዳንዱ ንብረትና እያንዳንዱ ሰነድ ተመዝግቦ ይጠበቃል።»', 'en' => '"Every Birr, Every Asset, Every Document — Accounted For."'],
+        'auth.motto' => ['am' => '«እያንዳንዱ ብር፣ እያንዳንዱ ንብረትና እያንዱ ሰነድ ተመዝግቦ ይጠበቃል።»', 'en' => '"Every Birr, Every Asset, Every Document — Accounted For."'],
 
         'setup.title' => ['am' => 'ቅዱስ ንብረት — የመጀመሪያ ማዋቀሪያ', 'en' => 'QIDUS ASSET — First-Run Setup'],
         'setup.subtitle' => ['am' => 'የሰንበት ትምህርት ቤቱን መረጃ እና የመጀመሪያውን አስተዳዳሪ ይፍጠሩ', 'en' => 'Configure school instance & initial System Admin'],
@@ -150,6 +171,12 @@ function qaT(string $key): string
         'profile.pw_btn' => ['am' => 'የይለፍ ቃል ቀይር', 'en' => 'Update Password'],
         'profile.meta_title' => ['am' => 'የመለያ ሁኔታ እና ደህንነት', 'en' => 'Account & Security Overview'],
         'profile.devices_title' => ['am' => 'የእኔ አንድሮይድ መሣሪያዎች', 'en' => 'My Registered Android Devices'],
+
+        'common.prev' => ['am' => 'ቀዳሚ', 'en' => 'Previous'],
+        'common.next' => ['am' => 'ቀጣይ', 'en' => 'Next'],
+        'common.showing' => ['am' => 'ውጤቶች', 'en' => 'Showing'],
+        'common.search' => ['am' => 'ፈልግ', 'en' => 'Search'],
+        'common.all' => ['am' => 'ሁሉም', 'en' => 'All'],
     ];
 
     $lang = qaLang();
@@ -157,4 +184,77 @@ function qaT(string $key): string
         return $dict[$key][$lang];
     }
     return $dict[$key]['en'] ?? $key;
+}
+
+/**
+ * Translate internal DB enums into human-readable Amharic/English labels.
+ */
+function qaStatusLabel(string $raw): string
+{
+    static $map = [
+        'PENDING_DEPARTMENT_HEAD' => ['am' => 'በክፍል ኃላፊ በመታየት ላይ', 'en' => 'Awaiting Dept Head'],
+        'PENDING_DEPUTY_CHAIRPERSON' => ['am' => 'በምክትል ሰብሳቢ በመታየት ላይ', 'en' => 'Awaiting Deputy Approval'],
+        'RETURNED_FOR_CORRECTION' => ['am' => 'ለማስተካከል ተመልሷል', 'en' => 'Returned for Correction'],
+        'STOCK_CHECK_PENDING' => ['am' => 'የክምችት ማረጋገጫ ላይ', 'en' => 'Stock Check Pending'],
+        'PENDING_FINANCE_REVIEW' => ['am' => 'በፋይናንስ ግምገማ ላይ', 'en' => 'Awaiting Finance Review'],
+        'PENDING_FINAL_APPROVAL' => ['am' => 'የመጨረሻ ማጽደቂያ ላይ', 'en' => 'Awaiting Final Approval'],
+        'PENDING_APPROVAL' => ['am' => 'ማጽደቂያ በመጠባበቅ ላይ', 'en' => 'Pending Approval'],
+        'APPROVED' => ['am' => 'ጸድቋል', 'en' => 'Approved'],
+        'REJECTED' => ['am' => 'ውድቅ ተደርጓል', 'en' => 'Rejected'],
+        'ORDERED' => ['am' => 'ትዕዛዝ ተሰጥቷል', 'en' => 'Ordered'],
+        'PARTIALLY_RECEIVED' => ['am' => 'በከፊል ገብቷል', 'en' => 'Partially Received'],
+        'RECEIVED' => ['am' => 'ተቀብሏል', 'en' => 'Received'],
+        'PAID' => ['am' => 'ተከፍሏል', 'en' => 'Paid'],
+        'CLOSED' => ['am' => 'ተዘግቷል', 'en' => 'Closed'],
+        'confirmed' => ['am' => 'ጸድቋል', 'en' => 'Confirmed'],
+        'reversed' => ['am' => 'ተሰርዟል (Reversal)', 'en' => 'Reversed'],
+        'in_stock' => ['am' => 'ክምችት አለ', 'en' => 'In Stock'],
+        'low_stock' => ['am' => 'ዝቅተኛ ክምችት', 'en' => 'Low Stock'],
+        'out_of_stock' => ['am' => 'ክምችት አልቋል', 'en' => 'Out of Stock'],
+        'assigned' => ['am' => 'ተሰጥቷል (በእጅ ላይ)', 'en' => 'Assigned'],
+        'maintenance' => ['am' => 'በጥገና ላይ', 'en' => 'In Maintenance'],
+        'retired' => ['am' => 'ተወግዷል', 'en' => 'Retired'],
+        'archived' => ['am' => 'ተቀምጧል', 'en' => 'Archived'],
+        'active' => ['am' => 'ንቁ', 'en' => 'Active'],
+        'closed' => ['am' => 'ተዘግቷል', 'en' => 'Closed'],
+        'draft' => ['am' => 'ረቂቅ', 'en' => 'Draft'],
+        'scheduled' => ['am' => 'ታቅዷል', 'en' => 'Scheduled'],
+        'in_progress' => ['am' => 'በሂደት ላይ', 'en' => 'In Progress'],
+        'completed' => ['am' => 'ተጠናቋል', 'en' => 'Completed'],
+        'open' => ['am' => 'ክፍት', 'en' => 'Open'],
+        'matched' => ['am' => 'ተዛምዷል', 'en' => 'Matched'],
+        'unmatched' => ['am' => 'ያልተዛመደ', 'en' => 'Unmatched'],
+        'needs_review' => ['am' => 'ግጭት — ክለሳ ይፈልጋል', 'en' => 'Conflict — Needs Review'],
+        'clean' => ['am' => 'ንጹህ', 'en' => 'Clean'],
+        'pending' => ['am' => 'በመጠባበቅ ላይ', 'en' => 'Pending'],
+        'verified' => ['am' => 'ተረጋግጧል', 'en' => 'Verified'],
+    ];
+
+    $lang = qaLang();
+    if (isset($map[$raw][$lang])) {
+        return $map[$raw][$lang];
+    }
+    return str_replace('_', ' ', ucfirst(strtolower($raw)));
+}
+
+function qaStatusTone(string $raw): string
+{
+    $upper = strtoupper($raw);
+    if (in_array($upper, ['APPROVED', 'IN_STOCK', 'ACTIVE', 'CONFIRMED', 'COMPLETED', 'CLEAN', 'MATCHED', 'RECEIVED', 'PAID', 'VERIFIED'], true)) {
+        return 'success';
+    }
+    if (in_array($upper, ['REJECTED', 'OUT_OF_STOCK', 'NEEDS_REVIEW', 'REVERSED', 'RETIRED', 'DISCREPANCY'], true)) {
+        return 'danger';
+    }
+    if (in_array($upper, ['ASSIGNED', 'ORDERED', 'IN_PROGRESS', 'PARTIALLY_RECEIVED'], true)) {
+        return 'info';
+    }
+    return 'warning';
+}
+
+function qaStatusBadge(string $raw): string
+{
+    $tone = qaStatusTone($raw);
+    $label = qaStatusLabel($raw);
+    return '<span class="qa-badge ' . e($tone) . '">' . e($label) . '</span>';
 }

@@ -49,6 +49,29 @@ if ($action === 'switch_role' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+if ($action === 'mark_notif_read' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!$user || !qaVerifyCsrf($_POST['csrf'] ?? null)) {
+        http_response_code(403);
+        exit('Forbidden.');
+    }
+    $nid = (int)($_POST['notification_id'] ?? 0);
+    $pdo = Connection::get();
+    if ($nid > 0) {
+        $pdo->prepare('UPDATE qa_notifications SET is_read = 1, read_at = NOW() WHERE id = :id AND recipient_user_id = :u')
+            ->execute([':id' => $nid, ':u' => (int)$user['uid']]);
+    } else {
+        $pdo->prepare('UPDATE qa_notifications SET is_read = 1, read_at = NOW() WHERE recipient_user_id = :u AND is_read = 0')
+            ->execute([':u' => (int)$user['uid']]);
+    }
+    $ret = (string)($_POST['return_to'] ?? 'index.php');
+    if (str_starts_with($ret, 'index.php')) {
+        header('Location: ' . $ret);
+    } else {
+        header('Location: index.php');
+    }
+    exit;
+}
+
 $loginError = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($action === 'login' || ($_POST['action'] ?? '') === 'login')) {
     if ($user) {

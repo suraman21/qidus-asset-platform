@@ -20,7 +20,7 @@ class QidusAssetApp extends StatefulWidget {
 class _QidusAssetAppState extends State<QidusAssetApp> {
   final ApiClient _api = ApiClient();
   ThemeMode _themeMode = ThemeMode.dark;
-  String _lang = 'en';
+  String _lang = 'am';
   Map<String, dynamic>? _user;
   bool _loading = true;
 

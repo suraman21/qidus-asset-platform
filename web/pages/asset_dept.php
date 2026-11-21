@@ -139,7 +139,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!Rbac::can($role, 'asset.handover')) {
                     throw new \DomainException('Permission denied: asset.handover required.');
                 }
-                $hnd = AssetWorkflowService::createHandover($pdo, $_POST, $user);
+                $hndPayload = $_POST;
+                $hndPayload['require_member_binding'] = empty($_POST['non_member_custody']);
+                $hnd = AssetWorkflowService::createHandover($pdo, $hndPayload, $user);
                 $flashOk = 'Recorded handover ' . (string)$hnd['handover_number'] . '.';
             } elseif ($postAction === 'upsert_member_profile') {
                 if (!Rbac::can($role, 'asset.write')) {
@@ -280,19 +282,24 @@ $openMaint = (int)$pdo->query("SELECT COUNT(*) FROM qa_asset_maintenance WHERE s
 $categories = $pdo->query("SELECT id, code, name_en, name_am, tracking_mode FROM qa_asset_categories WHERE is_active = 1 ORDER BY id ASC")->fetchAll();
 $locations = $pdo->query("SELECT id, code, name_en FROM qa_asset_locations WHERE is_active = 1 ORDER BY id ASC")->fetchAll();
 
-// Search & Filter Inventory
+// Search, Filter & Server-Side Pagination for Inventory
 $searchQ = trim((string)($_GET['q'] ?? ''));
 $filterCat = !empty($_GET['filter_cat']) ? (int)$_GET['filter_cat'] : null;
 $filterLoc = !empty($_GET['filter_loc']) ? (int)$_GET['filter_loc'] : null;
 $filterStatus = trim((string)($_GET['filter_status'] ?? ''));
+$invPage = max(1, (int)($_GET['pg'] ?? 1));
+$invPerPage = 25;
+$invOffset = ($invPage - 1) * $invPerPage;
 
 $invWhere = ['1=1'];
 $invParams = [];
 if ($searchQ !== '') {
-    $invWhere[] = '(a.asset_code LIKE :q1 OR a.name_en LIKE :q2 OR a.qr_token LIKE :q3)';
+    $invWhere[] = '(a.asset_code LIKE :q1 OR a.name_en LIKE :q2 OR a.name_am LIKE :q3 OR a.qr_token LIKE :q4 OR a.serial_number LIKE :q5)';
     $invParams[':q1'] = '%' . $searchQ . '%';
     $invParams[':q2'] = '%' . $searchQ . '%';
     $invParams[':q3'] = '%' . $searchQ . '%';
+    $invParams[':q4'] = '%' . $searchQ . '%';
+    $invParams[':q5'] = '%' . $searchQ . '%';
 }
 if ($filterCat) {
     $invWhere[] = 'a.category_id = :fc';
@@ -307,17 +314,23 @@ if ($filterStatus !== '') {
     $invParams[':fs'] = $filterStatus;
 }
 
-$invStmt = $pdo->prepare(
-    'SELECT a.*, c.name_en AS category_name, l.name_en AS location_name
+$invWhereSql = implode(' AND ', $invWhere);
+$invCountSql = 'SELECT COUNT(*) FROM qa_assets a WHERE ' . $invWhereSql;
+$invCountStmt = $pdo->prepare($invCountSql);
+$invCountStmt->execute($invParams);
+$invTotal = (int)$invCountStmt->fetchColumn();
+$invTotalPages = max(1, (int)ceil($invTotal / $invPerPage));
+
+$invSql = 'SELECT a.*, c.name_en AS category_name, l.name_en AS location_name
      FROM qa_assets a
      JOIN qa_asset_categories c ON c.id = a.category_id
      LEFT JOIN qa_asset_locations l ON l.id = a.location_id
-     WHERE ' . implode(' AND ', $invWhere) . ' ORDER BY a.id DESC LIMIT 40'
-);
+     WHERE ' . $invWhereSql . ' ORDER BY a.id DESC LIMIT ' . $invPerPage . ' OFFSET ' . $invOffset;
+$invStmt = $pdo->prepare($invSql);
 $invStmt->execute($invParams);
 $assets = $invStmt->fetchAll();
 
-$allAssets = $pdo->query("SELECT id, asset_code, name_en, quantity FROM qa_assets WHERE status <> 'archived' ORDER BY id DESC LIMIT 100")->fetchAll();
+$allAssets = $pdo->query("SELECT id, asset_code, name_en, quantity FROM qa_assets WHERE status <> 'archived' ORDER BY id DESC LIMIT 200")->fetchAll();
 $attachments = $pdo->query(
     "SELECT d.id, d.doc_number, d.title_en, d.linked_entity_id, a.asset_code
      FROM qa_documents d
@@ -351,11 +364,25 @@ $disposals = $pdo->query(
     "SELECT d.*, a.asset_code, a.name_en AS asset_name FROM qa_asset_disposals d JOIN qa_assets a ON a.id = d.asset_id ORDER BY d.id DESC LIMIT 15"
 )->fetchAll();
 $years = $pdo->query("SELECT * FROM qa_operational_years ORDER BY ec_year DESC")->fetchAll();
-$members = $pdo->query(
-    "SELECT m.external_member_id, m.member_code, m.name_en, m.section_name, p.clothing_size, p.shoe_size
-     FROM qa_member_sync_cache m LEFT JOIN qa_member_asset_profiles p ON p.member_cache_id = m.id
-     WHERE m.is_tombstoned = 0 ORDER BY m.name_en ASC LIMIT 30"
-)->fetchAll();
+$memberQ = trim((string)($_GET['member_q'] ?? ''));
+if ($memberQ !== '') {
+    $mLike = '%' . $memberQ . '%';
+    $mStmt = $pdo->prepare(
+        "SELECT m.external_member_id, m.member_code, m.name_en, m.name_am, m.section_name, p.clothing_size, p.shoe_size
+         FROM qa_member_sync_cache m LEFT JOIN qa_member_asset_profiles p ON p.member_cache_id = m.id
+         WHERE m.is_tombstoned = 0 AND (m.name_en LIKE :mq1 OR m.name_am LIKE :mq2 OR m.member_code LIKE :mq3 OR m.external_member_id LIKE :mq4)
+         ORDER BY m.name_en ASC LIMIT 50"
+    );
+    $mStmt->execute([':mq1' => $mLike, ':mq2' => $mLike, ':mq3' => $mLike, ':mq4' => $mLike]);
+    $members = $mStmt->fetchAll();
+} else {
+    $members = $pdo->query(
+        "SELECT m.external_member_id, m.member_code, m.name_en, m.name_am, m.section_name, p.clothing_size, p.shoe_size
+         FROM qa_member_sync_cache m LEFT JOIN qa_member_asset_profiles p ON p.member_cache_id = m.id
+         WHERE m.is_tombstoned = 0 ORDER BY m.name_en ASC LIMIT 50"
+    )->fetchAll();
+}
+$memberTotal = (int)$pdo->query("SELECT COUNT(*) FROM qa_member_sync_cache WHERE is_tombstoned = 0")->fetchColumn();
 
 $lookupMemberExtId = trim((string)($_GET['member_ext_id'] ?? ''));
 $memberSummary = $lookupMemberExtId !== '' ? AssetService::getMemberAssetSummary($pdo, $lookupMemberExtId) : null;
@@ -369,43 +396,44 @@ $reportData = $tab === 'reports' ? AssetReportService::generate($pdo, $selectedR
 qaRenderShell(qaT('page.asset'), 'asset', $user, static function () use (
     $user, $role, $tab, $flashOk, $flashErr,
     $fixedCount, $stockSkuCount, $lowStockCount, $activeHandovers, $openRequests, $openMaint,
-    $categories, $locations, $assets, $allAssets, $attachments, $searchQ, $filterCat, $filterLoc, $filterStatus,
-    $requests, $handovers, $overdue, $tickets, $events, $stations, $eventConflicts, $inspections, $findings, $disposals, $years, $members,
+    $categories, $locations, $assets, $invPage, $invTotal, $invTotalPages, $allAssets, $attachments, $searchQ, $filterCat, $filterLoc, $filterStatus,
+    $requests, $handovers, $overdue, $tickets, $events, $stations, $eventConflicts, $inspections, $findings, $disposals, $years, $members, $memberQ, $memberTotal,
     $lookupMemberExtId, $memberSummary, $selectedReport, $reportData, $reportFilters
 ): void {
+    $isAm = qaLang() === 'am';
     ?>
     <?php if ($flashOk !== ''): ?>
       <div class="qa-card" style="border-color:rgba(16,185,129,0.5);margin-bottom:16px;color:var(--accent-success);">
-        <strong>Success:</strong> <?= e($flashOk) ?>
+        <strong><?= e($isAm ? 'ተሳክቷል፦' : 'Success:') ?></strong> <?= e($flashOk) ?>
       </div>
     <?php endif; ?>
     <?php if ($flashErr !== ''): ?>
       <div class="qa-card" style="border-color:rgba(239,68,68,0.5);margin-bottom:16px;color:var(--accent-danger);">
-        <strong>Error:</strong> <?= e($flashErr) ?>
+        <strong><?= e($isAm ? 'ስህተት፦' : 'Error:') ?></strong> <?= e($flashErr) ?>
       </div>
     <?php endif; ?>
 
     <section class="qa-kpi-grid" aria-label="Asset Department KPIs">
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Fixed Assets</div><div class="qa-kpi-value tabular-nums"><?= $fixedCount ?></div><div class="qa-kpi-meta">Serialized QR inventory</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Stock &amp; Reusable</div><div class="qa-kpi-value tabular-nums"><?= $stockSkuCount ?></div><div class="qa-kpi-meta">Consumables &amp; uniforms</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Low Stock Alerts</div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-warning);"><?= $lowStockCount ?></div><div class="qa-kpi-meta">At or below minimum</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Issued Handovers</div><div class="qa-kpi-value tabular-nums"><?= $activeHandovers ?></div><div class="qa-kpi-meta"><?= count($overdue) ?> overdue</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Open Requests</div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-primary);"><?= $openRequests ?></div><div class="qa-kpi-meta">2-step approval queue</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Maintenance Queue</div><div class="qa-kpi-value tabular-nums"><?= $openMaint ?></div><div class="qa-kpi-meta">Open repair tickets</div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'ቋሚ ንብረቶች' : 'Fixed Assets') ?></div><div class="qa-kpi-value tabular-nums"><?= $fixedCount ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'QR የተሰጣቸው ንብረቶች' : 'Serialized QR inventory') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'አላቂ እና ተመላሽ ዕቃዎች' : 'Stock & Reusable') ?></div><div class="qa-kpi-value tabular-nums"><?= $stockSkuCount ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'አላቂ እና የአባላት ልብሶች' : 'Consumables & uniforms') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'ዝቅተኛ ክምችት' : 'Low Stock Alerts') ?></div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-warning);"><?= $lowStockCount ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'ከገደብ በታች የሆኑ' : 'At or below minimum') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'የተሰጡ ርክክቦች' : 'Issued Handovers') ?></div><div class="qa-kpi-value tabular-nums"><?= $activeHandovers ?></div><div class="qa-kpi-meta"><?= count($overdue) ?> <?= e($isAm ? 'ጊዜያቸው ያለፈ' : 'overdue') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'ክፍት ጥያቄዎች' : 'Open Requests') ?></div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-primary);"><?= $openRequests ?></div><div class="qa-kpi-meta"><?= e($isAm ? '2-ደረጃ ማጽደቂያ' : '2-step approval queue') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'የጥገና ዝርዝር' : 'Maintenance Queue') ?></div><div class="qa-kpi-value tabular-nums"><?= $openMaint ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'ክፍት የጥገና ትኬቶች' : 'Open repair tickets') ?></div></div>
     </section>
 
-    <nav style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;" aria-label="Asset Department Tabs">
+    <nav class="qa-tab-strip" aria-label="Asset Department Tabs">
       <?php foreach ([
-          'inventory' => 'Inventory & QR',
-          'handovers' => 'Handovers & Clothing',
-          'requests' => 'Requests & Disposals',
-          'events' => 'Rapid Events',
-          'maintenance' => 'Maintenance & Inspections',
-          'reports' => 'Reports & Years',
+          'inventory' => qaT('task.asset_register'),
+          'handovers' => qaT('task.custody'),
+          'requests' => qaT('task.requests'),
+          'events' => qaT('task.events'),
+          'maintenance' => qaT('task.maintenance'),
+          'reports' => qaT('task.reports'),
       ] as $k => $label): ?>
         <a href="index.php?page=asset&amp;tab=<?= e($k) ?>" class="qa-btn <?= $tab === $k ? 'qa-btn-primary' : '' ?>"><?= e($label) ?></a>
       <?php endforeach; ?>
-      <a href="index.php?page=asset&amp;export=qr_sheet" target="_blank" class="qa-btn">Print QR Sheet</a>
+      <a href="index.php?page=asset&amp;export=qr_sheet" target="_blank" class="qa-btn">🖨️ <?= e($isAm ? 'QR መለያ አትም' : 'Print QR Sheet') ?></a>
     </nav>
 
     <?php if ($tab === 'inventory'): ?>
@@ -526,7 +554,7 @@ qaRenderShell(qaT('page.asset'), 'asset', $user, static function () use (
                 <td><?= e($a['category_name']) ?></td>
                 <td><?= e($a['location_name'] ?? '—') ?></td>
                 <td class="tabular-nums"><?= (int)$a['quantity'] ?></td>
-                <td><span class="qa-badge <?= $a['status'] === 'in_stock' ? 'success' : ($a['status'] === 'low_stock' ? 'warning' : 'info') ?>"><?= e($a['status']) ?></span></td>
+                <td><?= qaStatusBadge((string)$a['status']) ?></td>
                 <td>
                   <?php if (Rbac::can($role, 'asset.write')): ?>
                   <form method="post" style="display:inline;">
@@ -552,6 +580,19 @@ qaRenderShell(qaT('page.asset'), 'asset', $user, static function () use (
               </tr>
             <?php endforeach; ?>
           </tbody></table></div>
+          <?php if ($invTotalPages > 1 || $invTotal > 0): ?>
+            <div class="qa-pagination">
+              <span><?= e(qaT('common.showing')) ?> <?= count($assets) ?> / <?= $invTotal ?> (<?= $invPage ?> / <?= $invTotalPages ?>)</span>
+              <div style="display:flex;gap:6px;">
+                <?php if ($invPage > 1): ?>
+                  <a class="qa-btn" href="index.php?page=asset&amp;tab=inventory&amp;pg=<?= $invPage - 1 ?>&amp;q=<?= urlencode($searchQ) ?>&amp;filter_cat=<?= (int)$filterCat ?>&amp;filter_loc=<?= (int)$filterLoc ?>&amp;filter_status=<?= urlencode($filterStatus) ?>"><?= e(qaT('common.prev')) ?></a>
+                <?php endif; ?>
+                <?php if ($invPage < $invTotalPages): ?>
+                  <a class="qa-btn" href="index.php?page=asset&amp;tab=inventory&amp;pg=<?= $invPage + 1 ?>&amp;q=<?= urlencode($searchQ) ?>&amp;filter_cat=<?= (int)$filterCat ?>&amp;filter_loc=<?= (int)$filterLoc ?>&amp;filter_status=<?= urlencode($filterStatus) ?>"><?= e(qaT('common.next')) ?></a>
+                <?php endif; ?>
+              </div>
+            </div>
+          <?php endif; ?>
         <?php endif; ?>
       </section>
 
@@ -576,7 +617,19 @@ qaRenderShell(qaT('page.asset'), 'asset', $user, static function () use (
               <div><label>Expected Return Date</label><input name="expected_return_date" type="date" class="qa-input"></div>
             </div>
             <?php if ($members !== []): ?>
-            <div class="qa-field"><label>Link Synced Member (Optional)</label><select name="receiver_member_external_id" class="qa-select" style="width:100%;"><option value="">— Walk-in / Staff —</option><?php foreach ($members as $m): ?><option value="<?= e($m['external_member_id']) ?>"><?= e($m['name_en']) ?> (<?= e($m['member_code'] ?? $m['external_member_id']) ?>)</option><?php endforeach; ?></select></div>
+            <div class="qa-field">
+              <label><?= e($isAm ? 'የአባል ማረጋገጫ (SSMS — ምንም ነባሪ ምርጫ የለም)' : 'Verified Member (SSMS — Never Preselected)') ?></label>
+              <select name="receiver_member_external_id" class="qa-select" style="width:100%;">
+                <option value=""><?= e($isAm ? '— የSSMS አባል ይምረጡ (ወይም ከታች አባል ያልሆነ ምልክት ያድርጉ) —' : '— Select verified SSMS member (or check non-member below) —') ?></option>
+                <?php foreach ($members as $m): ?>
+                  <option value="<?= e($m['external_member_id']) ?>"><?= e($m['name_en']) ?> (<?= e($m['member_code'] ?? $m['external_member_id']) ?>)</option>
+                <?php endforeach; ?>
+              </select>
+              <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:500;">
+                <input type="checkbox" name="non_member_custody" value="1">
+                <span><?= e($isAm ? 'አባል ያልሆነ / የሰራተኛ ወይም የውጭ ርክክብ' : 'Explicit non-member / staff / external custody') ?></span>
+              </label>
+            </div>
             <?php endif; ?>
             <div class="qa-field" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <div>
@@ -594,13 +647,18 @@ qaRenderShell(qaT('page.asset'), 'asset', $user, static function () use (
         <?php endif; ?>
 
         <div class="qa-card">
-          <div class="qa-card-header"><h2 class="qa-card-title">Member Clothing Sizing &amp; Holdings</h2><span class="qa-badge warning"><?= count($overdue) ?> overdue</span></div>
+          <div class="qa-card-header"><h2 class="qa-card-title"><?= e($isAm ? 'የአባላት ልብስ መጠን እና በእጅ ያሉ ንብረቶች' : 'Member Clothing Sizing & Holdings') ?></h2><span class="qa-badge info"><?= $memberTotal ?> <?= e($isAm ? 'አባላት' : 'synced') ?></span></div>
+          <form method="get" style="display:flex;gap:8px;margin-bottom:10px;">
+            <input type="hidden" name="page" value="asset"><input type="hidden" name="tab" value="handovers">
+            <input name="member_q" value="<?= e($memberQ) ?>" class="qa-input" style="flex:1;" placeholder="<?= e($isAm ? 'አባል በስም ወይም በመታወቂያ ፈልግ...' : 'Filter SSMS members by name or ID...') ?>">
+            <button type="submit" class="qa-btn"><?= e(qaT('common.search')) ?></button>
+          </form>
           <?php if ($members !== []): ?>
             <form method="post" style="margin-bottom:10px;">
               <input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>">
               <input type="hidden" name="asset_action" value="upsert_member_profile">
               <div class="qa-field" style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;">
-                <select name="external_member_id" class="qa-select"><?php foreach ($members as $m): ?><option value="<?= e($m['external_member_id']) ?>"><?= e($m['name_en']) ?> (<?= e($m['clothing_size'] ?? 'No size') ?>)</option><?php endforeach; ?></select>
+                <select name="external_member_id" class="qa-select" required><option value=""><?= e($isAm ? '— አባል ይምረጡ —' : '— Select member —') ?></option><?php foreach ($members as $m): ?><option value="<?= e($m['external_member_id']) ?>"><?= e($m['name_en']) ?> (<?= e($m['clothing_size'] ?? 'No size') ?>)</option><?php endforeach; ?></select>
                 <input name="clothing_size" class="qa-input" placeholder="Size (M/L)">
                 <input name="shoe_size" class="qa-input" placeholder="Shoe">
               </div>
@@ -674,7 +732,7 @@ qaRenderShell(qaT('page.asset'), 'asset', $user, static function () use (
           <div class="qa-table-wrap"><table class="qa-table"><thead><tr><th>Req #</th><th>Item</th><th>Requester</th><th>Status</th><th>Decision</th></tr></thead><tbody>
             <?php foreach ($requests as $r): ?>
               <tr>
-                <td><code><?= e($r['request_number']) ?></code></td><td><?= e($r['requested_item_name']) ?> (<?= (int)$r['quantity'] ?>)</td><td><?= e($r['requester_name']) ?></td><td><span class="qa-badge"><?= e($r['status']) ?></span></td>
+                <td><code><?= e($r['request_number']) ?></code></td><td><?= e($r['requested_item_name']) ?> (<?= (int)$r['quantity'] ?>)</td><td><?= e($r['requester_name']) ?></td><td><?= qaStatusBadge((string)$r['status']) ?></td>
                 <td>
                   <?php if ($r['status'] === 'PENDING_DEPARTMENT_HEAD' && Rbac::can($role, 'asset.request_dept_head')): ?>
                     <form method="post" style="display:inline-flex;gap:4px;flex-wrap:wrap;"><input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>"><input type="hidden" name="asset_action" value="dept_head_decide"><input type="hidden" name="request_id" value="<?= (int)$r['id'] ?>"><input name="note" class="qa-input" placeholder="Note" style="width:90px;padding:3px 6px;"><button name="decision" value="approve" class="qa-btn" style="padding:4px 8px;">Approve</button><button name="decision" value="return" class="qa-btn" style="padding:4px 8px;">Return</button><button name="decision" value="reject" class="qa-btn" style="padding:4px 8px;">Reject</button></form>
@@ -694,7 +752,7 @@ qaRenderShell(qaT('page.asset'), 'asset', $user, static function () use (
           <div class="qa-table-wrap"><table class="qa-table"><thead><tr><th>Disp #</th><th>Asset</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead><tbody>
             <?php foreach ($disposals as $d): ?>
               <tr>
-                <td><code><?= e($d['disposal_number']) ?></code></td><td><?= e($d['asset_code']) ?></td><td><?= e($d['reason_type']) ?></td><td><span class="qa-badge"><?= e($d['status']) ?></span></td>
+                <td><code><?= e($d['disposal_number']) ?></code></td><td><?= e($d['asset_code']) ?></td><td><?= e($d['reason_type']) ?></td><td><?= qaStatusBadge((string)$d['status']) ?></td>
                 <td>
                   <?php if ($d['status'] === 'PENDING_APPROVAL' && Rbac::can($role, 'asset.disposal_approve')): ?>
                     <form method="post" style="display:inline-flex;gap:4px;"><input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>"><input type="hidden" name="asset_action" value="decide_disposal"><input type="hidden" name="disposal_id" value="<?= (int)$d['id'] ?>"><button name="decision" value="approve" class="qa-btn" style="padding:4px 8px;">Approve</button><button name="decision" value="reject" class="qa-btn" style="padding:4px 8px;">Reject</button></form>

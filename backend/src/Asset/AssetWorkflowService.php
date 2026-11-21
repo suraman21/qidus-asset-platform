@@ -244,9 +244,43 @@ final class AssetWorkflowService
         $assetId = (int)($input['asset_id'] ?? 0);
         $handoverType = (string)($input['handover_type'] ?? 'issue');
         $receiverName = trim((string)($input['receiver_display_name'] ?? ''));
+        $extMemIdInput = trim((string)($input['receiver_member_external_id'] ?? $input['external_member_id'] ?? ''));
+        $explicitNonMember = !empty($input['non_member_custody']) || !empty($input['receiver_user_id']);
         $qty = max(1, (int)($input['quantity'] ?? 1));
         $method = (string)($input['verification_method'] ?? 'drawn_signature');
         $clientTxUuid = !empty($input['client_tx_uuid']) ? trim((string)$input['client_tx_uuid']) : null;
+
+        // Immutable member validation when external_member_id is provided (P0 binding rule)
+        $resolvedMemberCacheId = !empty($input['member_cache_id']) ? (int)$input['member_cache_id'] : null;
+        if ($extMemIdInput !== '') {
+            $mCheck = $pdo->prepare(
+                'SELECT id, name_en, is_tombstoned FROM qa_member_sync_cache WHERE external_member_id = :ext LIMIT 1'
+            );
+            $mCheck->execute([':ext' => $extMemIdInput]);
+            $memRow = $mCheck->fetch();
+            if (!$memRow || (int)$memRow['is_tombstoned'] === 1) {
+                throw new DomainException('Selected member ID is invalid or inactive in SSMS cache.');
+            }
+            $resolvedMemberCacheId = (int)$memRow['id'];
+            if ($receiverName === '') {
+                $receiverName = (string)$memRow['name_en'];
+            }
+        } elseif ($resolvedMemberCacheId !== null) {
+            $mCheck = $pdo->prepare(
+                'SELECT id, external_member_id, name_en, is_tombstoned FROM qa_member_sync_cache WHERE id = :id LIMIT 1'
+            );
+            $mCheck->execute([':id' => $resolvedMemberCacheId]);
+            $memRow = $mCheck->fetch();
+            if (!$memRow || (int)$memRow['is_tombstoned'] === 1) {
+                throw new DomainException('Selected member cache record is invalid or inactive.');
+            }
+            $extMemIdInput = (string)$memRow['external_member_id'];
+            if ($receiverName === '') {
+                $receiverName = (string)$memRow['name_en'];
+            }
+        } elseif (!$explicitNonMember && !empty($input['require_member_binding'])) {
+            throw new DomainException('Verified external member ID or explicit non-member custody is required.');
+        }
 
         if ($assetId <= 0 || $receiverName === '') {
             throw new DomainException('asset_id and receiver_display_name are required.');
@@ -281,7 +315,7 @@ final class AssetWorkflowService
                 throw new DomainException('device_uuid, canonical_payload, and biometric_sig_b64 are required for biometric_keystore verification.');
             }
             $dkStmt = $pdo->prepare(
-                "SELECT id, user_id, public_key_pem, key_algorithm, status
+                "SELECT id, user_id, public_key_pem, key_algorithm, biometric_bound, status
                  FROM qa_device_keys
                  WHERE device_uuid = :du AND status = 'active'
                  LIMIT 1"
@@ -290,6 +324,28 @@ final class AssetWorkflowService
             $dk = $dkStmt->fetch();
             if (!$dk) {
                 throw new DomainException('Approved active device key not found for device_uuid.');
+            }
+            if ((int)$dk['biometric_bound'] !== 1) {
+                throw new DomainException('Device key is not authentication/biometric-bound.');
+            }
+            // Validate Canonical Payload v2 binding fields when JSON encodes them
+            $decodedPayload = json_decode($canonicalPayload, true);
+            if (is_array($decodedPayload)) {
+                if (isset($decodedPayload['asset_id']) && (int)$decodedPayload['asset_id'] !== $assetId) {
+                    throw new DomainException('Signed payload asset_id mismatch.');
+                }
+                if (isset($decodedPayload['quantity']) && (int)$decodedPayload['quantity'] !== $qty) {
+                    throw new DomainException('Signed payload quantity mismatch.');
+                }
+                if (isset($decodedPayload['handover_type']) && (string)$decodedPayload['handover_type'] !== $handoverType) {
+                    throw new DomainException('Signed payload handover_type mismatch.');
+                }
+                if ($clientTxUuid !== null && isset($decodedPayload['client_tx_uuid']) && (string)$decodedPayload['client_tx_uuid'] !== $clientTxUuid) {
+                    throw new DomainException('Signed payload client_tx_uuid mismatch.');
+                }
+                if ($extMemIdInput !== '' && isset($decodedPayload['external_member_id']) && (string)$decodedPayload['external_member_id'] !== $extMemIdInput) {
+                    throw new DomainException('Signed payload external_member_id mismatch.');
+                }
             }
             if (!BiometricVerifier::verifySignature((string)$dk['public_key_pem'], $canonicalPayload, $biometricSigB64, (string)$dk['key_algorithm'])) {
                 throw new DomainException('Biometric Keystore signature verification failed.');
@@ -313,6 +369,7 @@ final class AssetWorkflowService
 
         return Connection::transaction(function (PDO $tx) use (
             $assetId, $handoverType, $receiverName, $qty, $method, $clientTxUuid,
+            $resolvedMemberCacheId, $extMemIdInput,
             $biometricKeyId, $biometricSigB64, $payloadSha256,
             $senderSigPath, $receiverSigPath, $senderSigSha, $receiverSigSha,
             $input, $actor
@@ -384,11 +441,10 @@ final class AssetWorkflowService
             );
             $condRaw = (string)($input['condition_at_handover'] ?? 'good');
             $condVal = in_array($condRaw, ['new', 'good', 'fair', 'poor', 'damaged'], true) ? $condRaw : 'good';
-            $mcId = !empty($input['member_cache_id']) ? (int)$input['member_cache_id'] : null;
-            $extMemId = trim((string)($input['receiver_member_external_id'] ?? $input['external_member_id'] ?? ''));
-            if ($mcId === null && $extMemId !== '') {
+            $mcId = $resolvedMemberCacheId;
+            if ($mcId === null && $extMemIdInput !== '') {
                 $mLookup = $tx->prepare('SELECT id FROM qa_member_sync_cache WHERE external_member_id = :ext LIMIT 1');
-                $mLookup->execute([':ext' => $extMemId]);
+                $mLookup->execute([':ext' => $extMemIdInput]);
                 $resolvedMc = (int)($mLookup->fetchColumn() ?: 0);
                 if ($resolvedMc > 0) {
                     $mcId = $resolvedMc;

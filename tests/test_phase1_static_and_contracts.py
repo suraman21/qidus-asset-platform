@@ -257,6 +257,33 @@ def test_mobile_android_keystore_and_offline_contracts() -> None:
 
     kt = read_text("mobile/qidus_asset_app/android/app/src/main/kotlin/org/qidus/asset/qidus_asset_app/MainActivity.kt")
     assert "FlutterFragmentActivity" in kt
+    assert "setUserAuthenticationRequired(true)" in kt
+    assert "BiometricPrompt.CryptoObject" in kt
+
+    kc = read_text("mobile/qidus_asset_app/lib/core/security/keystore_channel.dart")
+    assert "external_member_id" in kc
+    assert "'v': 2" in kc
+    assert "if (!available) {\n        return false;" in kc
+
+    rapid = read_text("mobile/qidus_asset_app/lib/features/events/rapid_event_screen.dart")
+    assert "members.first" not in rapid
+    assert "listOutstandingForMember" in rapid
+
+    handover = read_text("mobile/qidus_asset_app/lib/features/handover/handover_screen.dart")
+    assert "require_member_binding" in handover
+    assert "Rejected by server" in handover
+
+    local_db = read_text("mobile/qidus_asset_app/lib/core/storage/local_db.dart")
+    assert "sqflite_sqlcipher" in local_db
+
+    sync = read_text("mobile/qidus_asset_app/lib/core/sync/sync_engine.dart")
+    assert "while (moreAssets" in sync
+    assert "while (moreMembers" in sync
+    assert "'rejected'" in sync
+
+    i18n = read_text("web/core/i18n.php")
+    assert "qaStatusBadge" in i18n
+    assert "return 'am'" in i18n
     assert "AndroidKeyStore" in kt
     assert "SHA256withECDSA" in kt
     assert "secp256r1" in kt

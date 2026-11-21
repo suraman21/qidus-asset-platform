@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:uuid/uuid.dart';
 
@@ -7,9 +10,15 @@ import '../../core/storage/local_db.dart';
 
 class QrScanScreen extends StatefulWidget {
   final ApiClient api;
+  final String lang;
   final VoidCallback onQueued;
 
-  const QrScanScreen({super.key, required this.api, required this.onQueued});
+  const QrScanScreen({
+    super.key,
+    required this.api,
+    required this.lang,
+    required this.onQueued,
+  });
 
   @override
   State<QrScanScreen> createState() => _QrScanScreenState();
@@ -21,7 +30,11 @@ class _QrScanScreenState extends State<QrScanScreen> {
   final _qtyCtrl = TextEditingController(text: '1');
   Map<String, dynamic>? _asset;
   bool _cameraActive = false;
+  bool _continuousScan = true;
   String? _statusMsg;
+  bool _statusIsError = false;
+  String? _lastCode;
+  DateTime? _lastScanTime;
 
   @override
   void dispose() {
@@ -34,6 +47,12 @@ class _QrScanScreenState extends State<QrScanScreen> {
   Future<void> _lookupToken(String token) async {
     final clean = token.trim();
     if (clean.isEmpty) return;
+    final now = DateTime.now();
+    if (_lastCode == clean && _lastScanTime != null && now.difference(_lastScanTime!).inMilliseconds < 1500) {
+      return;
+    }
+    _lastCode = clean;
+    _lastScanTime = now;
     _tokenCtrl.text = clean;
 
     Map<String, dynamic>? found = await LocalDb.instance.findAssetByQr(clean);
@@ -48,10 +67,12 @@ class _QrScanScreenState extends State<QrScanScreen> {
       } catch (_) {}
     }
     if (!mounted) return;
+    HapticFeedback.selectionClick();
     setState(() {
       _asset = found;
-      _cameraActive = false;
-      _statusMsg = found == null ? 'No asset found for QR token "$clean" (offline cache & server checked).' : null;
+      if (!_continuousScan) _cameraActive = false;
+      _statusIsError = found == null;
+      _statusMsg = found == null ? 'No asset found for QR token "$clean".' : null;
     });
   }
 
@@ -71,24 +92,57 @@ class _QrScanScreenState extends State<QrScanScreen> {
     try {
       await widget.api.request('POST', '/assets/$assetId/movements', body: payload, idempotencyKey: txUuid);
       await LocalDb.instance.adjustLocalAssetQty(assetId, delta);
-      if (mounted) setState(() => _statusMsg = 'Stock movement synced immediately.');
-    } catch (_) {
-      await LocalDb.instance.enqueueOutbox(
-        clientTxUuid: txUuid,
-        actionType: 'movement',
-        endpoint: '/assets/$assetId/movements',
-        payload: payload,
-      );
-      await LocalDb.instance.adjustLocalAssetQty(assetId, delta);
-      widget.onQueued();
-      if (mounted) setState(() => _statusMsg = 'Offline: movement queued in durable outbox.');
+      if (mounted) setState(() {
+        _statusIsError = false;
+        _statusMsg = 'Stock movement synced immediately.';
+      });
+    } on ApiException catch (e) {
+      if (e.statusCode >= 400 && e.statusCode < 500) {
+        if (mounted) {
+          setState(() {
+            _statusIsError = true;
+            _statusMsg = 'Rejected (${e.statusCode}): ${e.message}';
+          });
+        }
+        return;
+      }
+      await _saveOfflineMovement(assetId, delta, txUuid, payload);
+    } on SocketException {
+      await _saveOfflineMovement(assetId, delta, txUuid, payload);
+    } catch (e) {
+      if (e.toString().contains('TimeoutException') || e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
+        await _saveOfflineMovement(assetId, delta, txUuid, payload);
+      } else if (mounted) {
+        setState(() {
+          _statusIsError = true;
+          _statusMsg = 'Error: $e';
+        });
+      }
     }
     final refreshed = await LocalDb.instance.findAssetByQr(_asset!['qr_token'] as String);
     if (mounted && refreshed != null) setState(() => _asset = refreshed);
   }
 
+  Future<void> _saveOfflineMovement(int assetId, int delta, String txUuid, Map<String, dynamic> payload) async {
+    await LocalDb.instance.enqueueOutbox(
+      clientTxUuid: txUuid,
+      actionType: 'movement',
+      endpoint: '/assets/$assetId/movements',
+      payload: payload,
+    );
+    await LocalDb.instance.adjustLocalAssetQty(assetId, delta);
+    widget.onQueued();
+    if (mounted) {
+      setState(() {
+        _statusIsError = false;
+        _statusMsg = 'Offline: movement queued in encrypted outbox.';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isAm = widget.lang == 'am';
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -101,16 +155,22 @@ class _QrScanScreenState extends State<QrScanScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('QR Scanner & Asset Lookup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                    Text(isAm ? 'QR ስካነር እና የንብረት ፍለጋ' : 'QR Scanner & Asset Lookup', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                     FilledButton.icon(
                       onPressed: () => setState(() => _cameraActive = !_cameraActive),
                       icon: Icon(_cameraActive ? Icons.stop : Icons.qr_code_scanner),
-                      label: Text(_cameraActive ? 'Stop Camera' : 'Scan QR'),
+                      label: Text(_cameraActive ? 'Stop' : 'Scan QR'),
                     ),
                   ],
                 ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(isAm ? 'ተከታታይ ስካን (Continuous Scan)' : 'Continuous Scan Mode'),
+                  value: _continuousScan,
+                  onChanged: (v) => setState(() => _continuousScan = v),
+                ),
                 if (_cameraActive) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   SizedBox(
                     height: 220,
                     child: ClipRRect(
@@ -133,7 +193,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                       child: TextField(
                         controller: _tokenCtrl,
                         decoration: const InputDecoration(
-                          labelText: 'QR Token (QA-...)',
+                          labelText: 'QR Token / Asset Code',
                           border: OutlineInputBorder(),
                           isDense: true,
                         ),
@@ -142,7 +202,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                     const SizedBox(width: 8),
                     ElevatedButton(
                       onPressed: () => _lookupToken(_tokenCtrl.text),
-                      child: const Text('Find'),
+                      child: Text(isAm ? 'ፈልግ' : 'Find'),
                     ),
                   ],
                 ),
@@ -153,9 +213,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
         if (_statusMsg != null) ...[
           const SizedBox(height: 10),
           Card(
+            color: _statusIsError ? Colors.red.withOpacity(0.15) : null,
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: Text(_statusMsg!),
+              child: Text(_statusMsg!, style: TextStyle(color: _statusIsError ? Colors.redAccent : null, fontWeight: FontWeight.w700)),
             ),
           ),
         ],

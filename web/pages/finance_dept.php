@@ -261,9 +261,29 @@ $budgets = $pdo->query(
     "SELECT b.*, c.name_en AS category_name FROM qa_fin_budgets b JOIN qa_fin_categories c ON c.id = b.category_id ORDER BY b.id DESC LIMIT 40"
 )->fetchAll();
 $amendments = $pdo->query("SELECT * FROM qa_fin_budget_amendments ORDER BY id DESC LIMIT 20")->fetchAll();
-$recentLedger = $pdo->query(
-    "SELECT t.*, a.account_code FROM qa_fin_transactions t JOIN qa_fin_accounts a ON a.id = t.account_id ORDER BY t.id DESC LIMIT 30"
-)->fetchAll();
+$ledgerQ = trim((string)($_GET['q'] ?? ''));
+$ledgerPage = max(1, (int)($_GET['pg'] ?? 1));
+$ledgerPerPage = 25;
+$ledgerOffset = ($ledgerPage - 1) * $ledgerPerPage;
+$ledgerWhere = ['1=1'];
+$ledgerParams = [];
+if ($ledgerQ !== '') {
+    $ledgerWhere[] = '(t.tx_number LIKE :lq1 OR t.description LIKE :lq2 OR a.account_code LIKE :lq3)';
+    $ledgerParams[':lq1'] = '%' . $ledgerQ . '%';
+    $ledgerParams[':lq2'] = '%' . $ledgerQ . '%';
+    $ledgerParams[':lq3'] = '%' . $ledgerQ . '%';
+}
+$ledgerWhereSql = implode(' AND ', $ledgerWhere);
+$ledgerCountSql = 'SELECT COUNT(*) FROM qa_fin_transactions t JOIN qa_fin_accounts a ON a.id = t.account_id WHERE ' . $ledgerWhereSql;
+$ledgerCountStmt = $pdo->prepare($ledgerCountSql);
+$ledgerCountStmt->execute($ledgerParams);
+$ledgerTotal = (int)$ledgerCountStmt->fetchColumn();
+$ledgerTotalPages = max(1, (int)ceil($ledgerTotal / $ledgerPerPage));
+$ledgerSql = 'SELECT t.*, a.account_code FROM qa_fin_transactions t JOIN qa_fin_accounts a ON a.id = t.account_id WHERE ' . $ledgerWhereSql . ' ORDER BY t.id DESC LIMIT ' . $ledgerPerPage . ' OFFSET ' . $ledgerOffset;
+$ledgerStmt = $pdo->prepare($ledgerSql);
+$ledgerStmt->execute($ledgerParams);
+$recentLedger = $ledgerStmt->fetchAll();
+
 $reconciliations = $pdo->query(
     "SELECT r.*, a.account_code FROM qa_fin_bank_reconciliations r JOIN qa_fin_accounts a ON a.id = r.account_id ORDER BY r.id DESC LIMIT 15"
 )->fetchAll();
@@ -271,7 +291,21 @@ $stmtLines = $pdo->query("SELECT * FROM qa_fin_bank_statement_lines ORDER BY id 
 $contributions = $pdo->query(
     "SELECT c.*, m.name_en AS member_name FROM qa_fin_member_contributions c JOIN qa_member_sync_cache m ON m.id = c.member_cache_id ORDER BY c.id DESC LIMIT 20"
 )->fetchAll();
-$members = $pdo->query("SELECT external_member_id, name_en FROM qa_member_sync_cache WHERE is_tombstoned = 0 ORDER BY name_en ASC LIMIT 50")->fetchAll();
+$finMemberQ = trim((string)($_GET['member_q'] ?? ''));
+if ($finMemberQ !== '') {
+    $fmLike = '%' . $finMemberQ . '%';
+    $fmStmt = $pdo->prepare(
+        "SELECT external_member_id, member_code, name_en, name_am
+         FROM qa_member_sync_cache
+         WHERE is_tombstoned = 0 AND (name_en LIKE :mq1 OR name_am LIKE :mq2 OR member_code LIKE :mq3 OR external_member_id LIKE :mq4)
+         ORDER BY name_en ASC LIMIT 50"
+    );
+    $fmStmt->execute([':mq1' => $fmLike, ':mq2' => $fmLike, ':mq3' => $fmLike, ':mq4' => $fmLike]);
+    $members = $fmStmt->fetchAll();
+} else {
+    $members = $pdo->query("SELECT external_member_id, member_code, name_en, name_am FROM qa_member_sync_cache WHERE is_tombstoned = 0 ORDER BY name_en ASC LIMIT 50")->fetchAll();
+}
+$finMemberTotal = (int)$pdo->query("SELECT COUNT(*) FROM qa_member_sync_cache WHERE is_tombstoned = 0")->fetchColumn();
 
 $suppliers = $pdo->query("SELECT * FROM qa_suppliers WHERE is_active = 1 ORDER BY name ASC")->fetchAll();
 $prs = $pdo->query("SELECT pr.*, u.full_name AS requester_name FROM qa_procurement_requests pr JOIN qa_users u ON u.id = pr.requester_id ORDER BY pr.id DESC LIMIT 20")->fetchAll();
@@ -291,34 +325,36 @@ $finRepData = $tab === 'documents' && Rbac::can($role, 'finance.read') ? BudgetA
 qaRenderShell(qaT('page.finance'), 'finance', $user, static function () use (
     $role, $tab, $flashOk, $flashErr,
     $budgetTotal, $incomeTotal, $expenseTotal, $openPrCount, $docCount, $unmatchedBank,
-    $accounts, $finCategories, $budgets, $amendments, $recentLedger, $reconciliations, $stmtLines,
-    $contributions, $members, $suppliers, $prs, $quotations, $pos, $assetCats, $assets,
+    $accounts, $finCategories, $budgets, $amendments, $recentLedger, $ledgerQ, $ledgerPage, $ledgerTotal, $ledgerTotalPages,
+    $reconciliations, $stmtLines,
+    $contributions, $members, $finMemberQ, $finMemberTotal, $suppliers, $prs, $quotations, $pos, $assetCats, $assets,
     $folders, $docs, $selFinRep, $finRepData
 ): void {
+    $isAm = qaLang() === 'am';
     ?>
     <?php if ($flashOk !== ''): ?>
-      <div class="qa-card" style="border-color:rgba(16,185,129,0.5);margin-bottom:16px;color:var(--accent-success);"><strong>Success:</strong> <?= e($flashOk) ?></div>
+      <div class="qa-card" style="border-color:rgba(16,185,129,0.5);margin-bottom:16px;color:var(--accent-success);"><strong><?= e($isAm ? 'ተሳክቷል፦' : 'Success:') ?></strong> <?= e($flashOk) ?></div>
     <?php endif; ?>
     <?php if ($flashErr !== ''): ?>
-      <div class="qa-card" style="border-color:rgba(239,68,68,0.5);margin-bottom:16px;color:var(--accent-danger);"><strong>Error:</strong> <?= e($flashErr) ?></div>
+      <div class="qa-card" style="border-color:rgba(239,68,68,0.5);margin-bottom:16px;color:var(--accent-danger);"><strong><?= e($isAm ? 'ስህተት፦' : 'Error:') ?></strong> <?= e($flashErr) ?></div>
     <?php endif; ?>
 
     <section class="qa-kpi-grid" aria-label="Finance Department KPIs">
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Allocated Budget</div><div class="qa-kpi-value tabular-nums"><?= number_format($budgetTotal, 2) ?></div><div class="qa-kpi-meta">ETB across active lines</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Recorded Income</div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-success);"><?= number_format($incomeTotal, 2) ?></div><div class="qa-kpi-meta">Immutable ledger credits</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Recorded Expenses</div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-warning);"><?= number_format($expenseTotal, 2) ?></div><div class="qa-kpi-meta">Vouched disbursements</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Open Purchase Requests</div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-primary);"><?= $openPrCount ?></div><div class="qa-kpi-meta">Stock &amp; budget gated</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Vault Documents</div><div class="qa-kpi-value tabular-nums"><?= $docCount ?></div><div class="qa-kpi-meta">SHA-256 indexed archive</div></div>
-      <div class="qa-kpi-card"><div class="qa-kpi-label">Unmatched Bank Lines</div><div class="qa-kpi-value tabular-nums"><?= $unmatchedBank ?></div><div class="qa-kpi-meta">Pending reconciliation</div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'የተመደበ በጀት' : 'Allocated Budget') ?></div><div class="qa-kpi-value tabular-nums"><?= number_format($budgetTotal, 2) ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'በንቁ የበጀት መስመሮች (ETB)' : 'ETB across active lines') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'የተመዘገበ ገቢ' : 'Recorded Income') ?></div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-success);"><?= number_format($incomeTotal, 2) ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'የማይሰረዝ መዝገብ' : 'Immutable ledger credits') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'የተመዘገበ ወጪ' : 'Recorded Expenses') ?></div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-warning);"><?= number_format($expenseTotal, 2) ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'በደረሰኝ የተደገፈ' : 'Vouched disbursements') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'ክፍት የግዥ ጥያቄዎች' : 'Open Purchase Requests') ?></div><div class="qa-kpi-value tabular-nums" style="color:var(--accent-primary);"><?= $openPrCount ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'በክምችትና በጀት የተጣራ' : 'Stock & budget gated') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'የካዝና ሰነዶች' : 'Vault Documents') ?></div><div class="qa-kpi-value tabular-nums"><?= $docCount ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'በSHA-256 የተጠበቀ' : 'SHA-256 indexed archive') ?></div></div>
+      <div class="qa-kpi-card"><div class="qa-kpi-label"><?= e($isAm ? 'ያልተዛመዱ የባንክ መስመሮች' : 'Unmatched Bank Lines') ?></div><div class="qa-kpi-value tabular-nums"><?= $unmatchedBank ?></div><div class="qa-kpi-meta"><?= e($isAm ? 'ማስታረቅ የሚጠብቁ' : 'Pending reconciliation') ?></div></div>
     </section>
 
-    <nav style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;" aria-label="Finance Department Tabs">
+    <nav class="qa-tab-strip" aria-label="Finance Department Tabs">
       <?php foreach ([
-          'ledger' => 'Ledger & Accounts',
-          'budgets' => 'Budgets & Reallocations',
-          'reconcile' => 'Reconciliation & Contributions',
-          'procurement' => 'Procurement & GRN',
-          'documents' => 'Document Vault & Reports',
+          'ledger' => qaT('task.ledger'),
+          'budgets' => qaT('task.budgets'),
+          'reconcile' => qaT('task.reconcile'),
+          'procurement' => qaT('task.procurement'),
+          'documents' => qaT('task.vault'),
       ] as $k => $lbl): ?>
         <a href="index.php?page=finance&amp;tab=<?= e($k) ?>" class="qa-btn <?= $tab === $k ? 'qa-btn-primary' : '' ?>"><?= e($lbl) ?></a>
       <?php endforeach; ?>
@@ -369,12 +405,19 @@ qaRenderShell(qaT('page.finance'), 'finance', $user, static function () use (
       </section>
 
       <section class="qa-card" style="margin-top:16px;">
-        <div class="qa-card-header"><h2 class="qa-card-title">Immutable Financial Ledger (No Hard Deletes)</h2><span class="qa-badge warning">Reversal Only</span></div>
+        <div class="qa-card-header" style="flex-wrap:wrap;gap:10px;">
+          <h2 class="qa-card-title"><?= e($isAm ? 'የማይሰረዝ የፋይናንስ መዝገብ' : 'Immutable Financial Ledger (No Hard Deletes)') ?></h2>
+          <form method="get" style="display:flex;gap:6px;flex-wrap:wrap;">
+            <input type="hidden" name="page" value="finance"><input type="hidden" name="tab" value="ledger">
+            <input name="q" value="<?= e($ledgerQ) ?>" class="qa-input" placeholder="<?= e($isAm ? 'በቁጥር / መግለጫ ፈልግ' : 'Search Tx # / description') ?>">
+            <button type="submit" class="qa-btn"><?= e(qaT('common.search')) ?></button>
+          </form>
+        </div>
         <div class="qa-table-wrap"><table class="qa-table"><thead><tr><th>Tx #</th><th>Kind</th><th>Type</th><th>Account</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>
           <?php foreach ($recentLedger as $row): ?>
             <tr>
               <td><code><?= e($row['tx_number']) ?></code></td><td><span class="qa-badge"><?= e($row['entry_kind']) ?></span></td><td><?= e($row['type']) ?></td><td><?= e($row['account_code']) ?></td>
-              <td class="tabular-nums"><?= number_format((float)$row['amount'], 2) ?></td><td><span class="qa-badge <?= $row['status'] === 'confirmed' ? 'success' : 'warning' ?>"><?= e($row['status']) ?></span></td>
+              <td class="tabular-nums"><?= number_format((float)$row['amount'], 2) ?></td><td><?= qaStatusBadge((string)$row['status']) ?></td>
               <td>
                 <?php if ($row['status'] === 'confirmed' && $row['entry_kind'] !== 'REVERSAL' && Rbac::can($role, 'finance.ledger_adjust')): ?>
                   <form method="post" style="display:inline-flex;gap:4px;"><input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>"><input type="hidden" name="fin_action" value="reverse_tx"><input type="hidden" name="tx_id" value="<?= (int)$row['id'] ?>"><input name="reason" class="qa-input" placeholder="Reversal reason" required style="width:120px;padding:3px 6px;"><button type="submit" class="qa-btn" style="padding:4px 8px;">Reverse</button></form>
@@ -383,6 +426,19 @@ qaRenderShell(qaT('page.finance'), 'finance', $user, static function () use (
             </tr>
           <?php endforeach; ?>
         </tbody></table></div>
+        <?php if ($ledgerTotalPages > 1 || $ledgerTotal > 0): ?>
+          <div class="qa-pagination">
+            <span><?= e(qaT('common.showing')) ?> <?= count($recentLedger) ?> / <?= $ledgerTotal ?> (<?= $ledgerPage ?> / <?= $ledgerTotalPages ?>)</span>
+            <div style="display:flex;gap:6px;">
+              <?php if ($ledgerPage > 1): ?>
+                <a class="qa-btn" href="index.php?page=finance&amp;tab=ledger&amp;pg=<?= $ledgerPage - 1 ?>&amp;q=<?= urlencode($ledgerQ) ?>"><?= e(qaT('common.prev')) ?></a>
+              <?php endif; ?>
+              <?php if ($ledgerPage < $ledgerTotalPages): ?>
+                <a class="qa-btn" href="index.php?page=finance&amp;tab=ledger&amp;pg=<?= $ledgerPage + 1 ?>&amp;q=<?= urlencode($ledgerQ) ?>"><?= e(qaT('common.next')) ?></a>
+              <?php endif; ?>
+            </div>
+          </div>
+        <?php endif; ?>
       </section>
 
     <?php elseif ($tab === 'budgets'): ?>
@@ -500,14 +556,19 @@ qaRenderShell(qaT('page.finance'), 'finance', $user, static function () use (
         </div>
         <?php endif; ?>
 
-        <?php if (Rbac::can($role, 'finance.contributions') && $accounts !== [] && $members !== []): ?>
+        <?php if (Rbac::can($role, 'finance.contributions') && $accounts !== []): ?>
         <div class="qa-card">
-          <div class="qa-card-header"><h2 class="qa-card-title">Monthly Member Contributions</h2></div>
+          <div class="qa-card-header"><h2 class="qa-card-title"><?= e($isAm ? 'ወርሃዊ የአባላት መዋጮ' : 'Monthly Member Contributions') ?></h2><span class="qa-badge info"><?= $finMemberTotal ?> <?= e($isAm ? 'አባላት' : 'synced') ?></span></div>
+          <form method="get" style="display:flex;gap:8px;margin-bottom:10px;">
+            <input type="hidden" name="page" value="finance"><input type="hidden" name="tab" value="reconcile">
+            <input name="member_q" value="<?= e($finMemberQ) ?>" class="qa-input" style="flex:1;" placeholder="<?= e($isAm ? 'አባል በስም ወይም በመታወቂያ ፈልግ...' : 'Filter SSMS members by name or ID...') ?>">
+            <button type="submit" class="qa-btn"><?= e(qaT('common.search')) ?></button>
+          </form>
           <form method="post">
             <input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>">
             <input type="hidden" name="fin_action" value="record_contribution">
             <div class="qa-field" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-              <select name="external_member_id" class="qa-select"><?php foreach ($members as $m): ?><option value="<?= e($m['external_member_id']) ?>"><?= e($m['name_en']) ?></option><?php endforeach; ?></select>
+              <select name="external_member_id" class="qa-select" required><option value=""><?= e($isAm ? '— የSSMS አባል ይምረጡ —' : '— Select verified member —') ?></option><?php foreach ($members as $m): ?><option value="<?= e($m['external_member_id']) ?>"><?= e($m['name_en']) ?> (<?= e($m['member_code'] ?? $m['external_member_id']) ?>)</option><?php endforeach; ?></select>
               <select name="account_id" class="qa-select"><?php foreach ($accounts as $ac): ?><option value="<?= (int)$ac['id'] ?>"><?= e($ac['account_code']) ?></option><?php endforeach; ?></select>
             </div>
             <div class="qa-field" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
@@ -606,7 +667,7 @@ qaRenderShell(qaT('page.finance'), 'finance', $user, static function () use (
               <tr>
                 <td><code><?= e($p['pr_number']) ?></code></td><td><?= e($p['title']) ?> (<?= number_format((float)$p['estimated_total'], 2) ?>)</td>
                 <td><span class="qa-badge"><?= e($p['stock_check_status']) ?></span> <span class="qa-badge"><?= e($p['budget_check_status']) ?></span></td>
-                <td><span class="qa-badge info"><?= e($p['status']) ?></span></td>
+                <td><?= qaStatusBadge((string)$p['status']) ?></td>
                 <td>
                   <?php if ($p['stock_check_status'] === 'PENDING' && Rbac::can($role, 'procurement.stock_check')): ?>
                     <form method="post" style="display:inline;"><input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>"><input type="hidden" name="fin_action" value="stock_check_pr"><input type="hidden" name="pr_id" value="<?= (int)$p['id'] ?>"><button type="submit" class="qa-btn" style="padding:4px 8px;">Run Stock Check</button></form>

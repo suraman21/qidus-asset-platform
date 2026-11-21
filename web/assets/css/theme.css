@@ -1,59 +1,59 @@
-/* QIDUS ASSET Design System — Light & Dark Mode Tokens
- * Matches reference screenshots & docs/04_UI_UX_DESIGN_SYSTEM.md
+/* QIDUS ASSET Design System — Single Source of Truth (Web + Flutter Parity)
+ * Matches docs/07_PHASE2_DESIGN_SYSTEM_AND_MIGRATION_PLAN.md & docs/04_UI_UX_DESIGN_SYSTEM.md
  */
 
 :root,
 [data-theme="dark"] {
-  --bg-body: #0f111a;
-  --bg-sidebar: rgba(20, 23, 36, 0.94);
-  --bg-card: rgba(26, 30, 46, 0.78);
-  --bg-card-solid: #1a1e2e;
-  --bg-card-hover: rgba(34, 39, 59, 0.96);
-  --bg-topbar: rgba(15, 17, 26, 0.88);
-  --bg-input: rgba(255, 255, 255, 0.05);
+  --bg-body: #07080d;
+  --bg-sidebar: #10131c;
+  --bg-card: rgba(22, 27, 40, 0.88);
+  --bg-card-solid: #161b28;
+  --bg-card-hover: #1d2333;
+  --bg-topbar: rgba(16, 19, 28, 0.92);
+  --bg-input: #1d2333;
 
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
 
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(76, 201, 240, 0.45);
-  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-focus: rgba(245, 158, 11, 0.45);
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.4);
 
   /* Brand & Semantic Tokens (overridable by school theme) */
-  --school-primary: #4cc9f0;
-  --school-accent: #7b2cbf;
+  --school-primary: #3b82f6;
+  --school-accent: #f59e0b;
   --accent-primary: var(--school-primary);
   --accent-secondary: var(--school-accent);
   --accent-success: #10b981;
   --accent-warning: #f59e0b;
   --accent-danger: #ef4444;
-  --accent-info: #3b82f6;
+  --accent-info: #06b6d4;
 }
 
 [data-theme="light"] {
-  --bg-body: #f1f5f9;
+  --bg-body: #f3f4f6;
   --bg-sidebar: #ffffff;
   --bg-card: #ffffff;
   --bg-card-solid: #ffffff;
   --bg-card-hover: #f8fafc;
-  --bg-topbar: rgba(255, 255, 255, 0.92);
+  --bg-topbar: rgba(255, 255, 255, 0.95);
   --bg-input: #f8fafc;
 
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --text-muted: #64748b;
 
   --border-subtle: #e2e8f0;
-  --border-focus: rgba(2, 132, 199, 0.4);
+  --border-focus: rgba(30, 58, 138, 0.35);
   --shadow-card: 0 4px 16px rgba(15, 23, 42, 0.06);
 
-  --school-primary: #0284c7;
-  --school-accent: #6d28d9;
+  --school-primary: #1e3a8a;
+  --school-accent: #d97706;
   --accent-primary: var(--school-primary);
   --accent-secondary: var(--school-accent);
   --accent-success: #059669;
   --accent-warning: #d97706;
   --accent-danger: #dc2626;
-  --accent-info: #2563eb;
+  --accent-info: #0284c7;
 }

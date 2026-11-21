@@ -112,17 +112,47 @@ function qaRouteAssets(string $method, array $sub): never
         }
         if (!empty($_GET['q'])) {
             $like = '%' . trim((string)$_GET['q']) . '%';
-            $where[] = '(a.asset_code LIKE :q1 OR a.name_en LIKE :q2 OR a.name_am LIKE :q3 OR a.serial_number LIKE :q4)';
+            $where[] = '(a.asset_code LIKE :q1 OR a.name_en LIKE :q2 OR a.name_am LIKE :q3 OR a.serial_number LIKE :q4 OR a.qr_token LIKE :q5)';
             $params[':q1'] = $like;
             $params[':q2'] = $like;
             $params[':q3'] = $like;
             $params[':q4'] = $like;
+            $params[':q5'] = $like;
         }
+        $afterId = isset($_GET['after_id']) && ctype_digit((string)$_GET['after_id']) ? (int)$_GET['after_id'] : 0;
         $whereSql = implode(' AND ', $where);
 
         $cStmt = $pdo->prepare("SELECT COUNT(*) FROM qa_assets a WHERE {$whereSql}");
         $cStmt->execute($params);
         $total = (int)$cStmt->fetchColumn();
+
+        if ($afterId > 0) {
+            $where[] = 'a.id > :after_id';
+            $params[':after_id'] = $afterId;
+            $whereCursorSql = implode(' AND ', $where);
+            $stmt = $pdo->prepare(
+                "SELECT a.*, c.code AS category_code, c.name_en AS category_name_en, l.name_en AS location_name_en
+                 FROM qa_assets a
+                 JOIN qa_asset_categories c ON c.id = a.category_id
+                 LEFT JOIN qa_asset_locations l ON l.id = a.location_id
+                 WHERE {$whereCursorSql}
+                 ORDER BY a.id ASC
+                 LIMIT :lim"
+            );
+            foreach ($params as $k => $v) {
+                $stmt->bindValue($k, $v, is_int($v) ? PDO::PARAM_INT : PDO::PARAM_STR);
+            }
+            $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll();
+            $lastId = $rows !== [] ? (int)$rows[count($rows) - 1]['id'] : $afterId;
+            Response::ok([
+                'items' => $rows,
+                'next_cursor' => $lastId,
+                'has_more' => count($rows) === $limit,
+                'pagination' => ['total' => $total, 'per_page' => $limit, 'has_more' => count($rows) === $limit],
+            ]);
+        }
 
         $stmt = $pdo->prepare(
             "SELECT a.*, c.code AS category_code, c.name_en AS category_name_en, l.name_en AS location_name_en
@@ -139,8 +169,20 @@ function qaRouteAssets(string $method, array $sub): never
         $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
         $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
         $stmt->execute();
+        $rows = $stmt->fetchAll();
+        $nextCursor = $rows !== [] ? (int)$rows[count($rows) - 1]['id'] : null;
 
-        Response::paginated($stmt->fetchAll(), $total, $page, $limit);
+        Response::ok([
+            'items' => $rows,
+            'next_cursor' => $nextCursor,
+            'has_more' => ($offset + count($rows)) < $total,
+            'pagination' => [
+                'total' => $total,
+                'page' => $page,
+                'per_page' => $limit,
+                'total_pages' => max(1, (int)ceil($total / max(1, $limit))),
+            ],
+        ]);
     }
 
     if ($method === 'GET' && ($sub[0] ?? '') === 'resolve' && !empty($sub[1])) {

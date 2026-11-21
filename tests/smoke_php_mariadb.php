@@ -344,6 +344,53 @@ AssetLifecycleService::resolveEventConflict($pdo, $evId, $txConflictId, 'Approve
 $closedEv = AssetLifecycleService::closeEvent($pdo, $evId, $headActor);
 assertTrue($closedEv['status'] === 'closed', 'Event closed after resolving conflicts');
 
+$pkgCheck = AssetLifecycleService::getEventPackage($pdo, $evId);
+assertTrue(!empty($pkgCheck['manifest']['sha256']) && (int)$pkgCheck['manifest']['version'] === 2, 'Event package includes manifest v2 checksum');
+assertTrue(isset($pkgCheck['outstanding_by_member']), 'Event package includes outstanding_by_member');
+
+// Verify Canonical Payload v2 tamper rejection & immutable member binding check
+$tamperedBlocked = false;
+try {
+    $badPayload = json_encode([
+        'v' => 2,
+        'asset_id' => $assetId,
+        'quantity' => 99,
+        'handover_type' => 'issue',
+        'external_member_id' => $extStu1,
+        'client_tx_uuid' => AssetService::generateUuidV4(),
+    ], JSON_UNESCAPED_SLASHES);
+    openssl_sign((string)$badPayload, $badSigRaw, $keyRes, OPENSSL_ALGO_SHA256);
+    AssetWorkflowService::createHandover($pdo, [
+        'asset_id' => $assetId,
+        'handover_type' => 'issue',
+        'receiver_member_external_id' => $extStu1,
+        'receiver_display_name' => 'Abebe Kebede',
+        'quantity' => 1,
+        'verification_method' => 'biometric_keystore',
+        'device_uuid' => $deviceUuid,
+        'canonical_payload' => $badPayload,
+        'biometric_sig_b64' => base64_encode($badSigRaw),
+    ], $officerActor);
+} catch (\DomainException $e) {
+    $tamperedBlocked = true;
+}
+assertTrue($tamperedBlocked, 'Mismatched Canonical Payload v2 quantity rejected');
+
+$unboundBlocked = false;
+try {
+    AssetWorkflowService::createHandover($pdo, [
+        'asset_id' => $assetId,
+        'handover_type' => 'issue',
+        'receiver_display_name' => 'Walk-in Unknown',
+        'quantity' => 1,
+        'require_member_binding' => true,
+        'verification_method' => 'drawn_signature',
+    ], $officerActor);
+} catch (\DomainException $e) {
+    $unboundBlocked = true;
+}
+assertTrue($unboundBlocked, 'Unbound member handover rejected when member binding required');
+
 // 12. Maintenance, Inspection Close + Findings, Disposal Open-Issue Guard + Override
 $ticket = AssetLifecycleService::createMaintenanceTicket($pdo, [
     'asset_id' => $assetId,

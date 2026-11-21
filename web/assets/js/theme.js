@@ -108,5 +108,28 @@
         sidebar.classList.toggle('open');
       });
     }
+
+    var notifBtn = document.getElementById('qaNotifToggle');
+    var notifPanel = document.getElementById('qaNotifPanel');
+    if (notifBtn && notifPanel) {
+      notifBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = notifPanel.classList.toggle('open');
+        notifBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      document.addEventListener('click', function (e) {
+        if (!notifPanel.contains(e.target) && e.target !== notifBtn) {
+          notifPanel.classList.remove('open');
+          notifBtn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
+    var printBtn = document.getElementById('qaPrintBtn');
+    if (printBtn) {
+      printBtn.addEventListener('click', function () {
+        window.print();
+      });
+    }
   });
 })();
