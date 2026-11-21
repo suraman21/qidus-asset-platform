@@ -20,7 +20,7 @@ class AppConfig {
         foregroundColor: Color(0xFF0F172A),
         elevation: 0,
       ),
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         color: const Color(0xFFFFFFFF),
         elevation: 1,
         shape: RoundedRectangleBorder(
@@ -48,7 +48,7 @@ class AppConfig {
         foregroundColor: Color(0xFFF8FAFC),
         elevation: 0,
       ),
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         color: const Color(0xFF1E293B),
         elevation: 0,
         shape: RoundedRectangleBorder(

@@ -100,14 +100,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 4),
                     Text(
                       'Offline-First Asset & Event Field Companion',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
                     ),
                     const SizedBox(height: 20),
                     if (_error != null) ...[
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.red.withValues(alpha: 0.14),
+                          color: Colors.red.withOpacity(0.14),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(_error!, style: const TextStyle(color: Colors.redAccent)),
