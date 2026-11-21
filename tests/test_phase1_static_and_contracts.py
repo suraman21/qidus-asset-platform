@@ -254,9 +254,15 @@ def test_mobile_android_keystore_and_offline_contracts() -> None:
     assert "USE_BIOMETRIC" in manifest
 
     kt = read_text("mobile/qidus_asset_app/android/app/src/main/kotlin/org/qidus/asset/qidus_asset_app/MainActivity.kt")
+    assert "FlutterFragmentActivity" in kt
     assert "AndroidKeyStore" in kt
     assert "SHA256withECDSA" in kt
     assert "secp256r1" in kt
+
+    app_gradle = read_text("mobile/qidus_asset_app/android/app/build.gradle")
+    assert 'namespace = "org.qidus.asset.qidus_asset_app"' in app_gradle
+    assert (ROOT / "mobile/qidus_asset_app/android/settings.gradle").is_file()
+    assert (ROOT / "mobile/qidus_asset_app/android/build.gradle").is_file()
 
     db_dart = read_text("mobile/qidus_asset_app/lib/core/storage/local_db.dart")
     assert "local_outbox" in db_dart

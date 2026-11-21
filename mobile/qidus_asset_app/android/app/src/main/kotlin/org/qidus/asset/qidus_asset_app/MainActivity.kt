@@ -8,50 +8,68 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.PrivateKey
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
 
-/**
- * Hardware-backed Android Keystore EC P-256 bridge (FR-19).
- * Generates non-exportable private keys inside AndroidKeyStore, exports X.509 PEM public keys
- * compatible with PHP openssl_verify(..., OPENSSL_ALGO_SHA256), and signs canonical JSON payloads.
- */
 class MainActivity : FlutterFragmentActivity() {
-    private val channelName = "org.qidus.asset/keystore"
-    private val keyAliasPrefix = "qidus_asset_ec_"
+    companion object {
+        private const val CHANNEL = "org.qidus.asset/keystore"
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val ALIAS_PREFIX = "qidus_asset_ec_"
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
-            .setMethodCallHandler { call, result ->
-                try {
-                    when (call.method) {
-                        "ensureKeyPair" -> {
-                            val deviceUuid = call.argument<String>("deviceUuid")
-                                ?: return@setMethodCallHandler result.error("ARG", "deviceUuid required", null)
-                            val pem = ensureEcKeyPair(keyAliasPrefix + deviceUuid)
-                            result.success(mapOf("algorithm" to "EC_P256", "publicKeyPem" to pem))
-                        }
-                        "signPayload" -> {
-                            val deviceUuid = call.argument<String>("deviceUuid")
-                                ?: return@setMethodCallHandler result.error("ARG", "deviceUuid required", null)
-                            val payload = call.argument<String>("payload")
-                                ?: return@setMethodCallHandler result.error("ARG", "payload required", null)
-                            val sigB64 = signWithKey(keyAliasPrefix + deviceUuid, payload.toByteArray(Charsets.UTF_8))
-                            result.success(sigB64)
-                        }
-                        else -> result.notImplemented()
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "ensureKeyPair" -> {
+                    val deviceUuid = call.argument<String>("deviceUuid")?.trim().orEmpty()
+                    if (deviceUuid.isEmpty()) {
+                        result.error("INVALID_ARGS", "deviceUuid is required", null)
+                        return@setMethodCallHandler
                     }
-                } catch (e: Exception) {
-                    result.error("KEYSTORE_ERROR", e.message ?: "Keystore operation failed", null)
+                    try {
+                        val pem = ensureEcKeyPairPem(ALIAS_PREFIX + deviceUuid)
+                        result.success(
+                            mapOf(
+                                "algorithm" to "EC_P256",
+                                "publicKeyPem" to pem
+                            )
+                        )
+                    } catch (e: Exception) {
+                        result.error("KEYSTORE_ERROR", e.message ?: "Failed to ensure EC keypair", null)
+                    }
                 }
+
+                "signPayload" -> {
+                    val deviceUuid = call.argument<String>("deviceUuid")?.trim().orEmpty()
+                    val payload = call.argument<String>("payload") ?: ""
+                    if (deviceUuid.isEmpty() || payload.isEmpty()) {
+                        result.error("INVALID_ARGS", "deviceUuid and payload are required", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val sigB64 = signWithEcKey(ALIAS_PREFIX + deviceUuid, payload)
+                        result.success(sigB64)
+                    } catch (e: Exception) {
+                        result.error("SIGN_ERROR", e.message ?: "Failed to sign payload", null)
+                    }
+                }
+
+                else -> result.notImplemented()
             }
+        }
     }
 
-    private fun ensureEcKeyPair(alias: String): String {
-        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        if (!ks.containsAlias(alias)) {
-            val kpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+    private fun ensureEcKeyPairPem(alias: String): String {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        val publicKey = if (keyStore.containsAlias(alias)) {
+            keyStore.getCertificate(alias)?.publicKey
+                ?: throw IllegalStateException("Keystore entry missing certificate for $alias")
+        } else {
+            val kpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, ANDROID_KEYSTORE)
             val spec = KeyGenParameterSpec.Builder(
                 alias,
                 KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
@@ -60,23 +78,25 @@ class MainActivity : FlutterFragmentActivity() {
                 .setDigests(KeyProperties.DIGEST_SHA256)
                 .build()
             kpg.initialize(spec)
-            kpg.generateKeyPair()
+            kpg.generateKeyPair().public
         }
-        val cert = ks.getCertificate(alias)
-        val der = cert.publicKey.encoded
-        val b64 = Base64.encodeToString(der, Base64.NO_WRAP)
+
+        val b64 = Base64.encodeToString(publicKey.encoded, Base64.NO_WRAP)
         val wrapped = b64.chunked(64).joinToString("\n")
         return "-----BEGIN PUBLIC KEY-----\n$wrapped\n-----END PUBLIC KEY-----"
     }
 
-    private fun signWithKey(alias: String, data: ByteArray): String {
-        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        val entry = ks.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
-            ?: throw IllegalStateException("Key alias $alias not initialized")
-        val signer = Signature.getInstance("SHA256withECDSA")
-        signer.initSign(entry.privateKey)
-        signer.update(data)
-        val raw = signer.sign()
-        return Base64.encodeToString(raw, Base64.NO_WRAP)
+    private fun signWithEcKey(alias: String, payload: String): String {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        if (!keyStore.containsAlias(alias)) {
+            ensureEcKeyPairPem(alias)
+            keyStore.load(null)
+        }
+        val privateKey = keyStore.getKey(alias, null) as? PrivateKey
+            ?: throw IllegalStateException("Keystore private key not found for $alias")
+        val signature = Signature.getInstance("SHA256withECDSA")
+        signature.initSign(privateKey)
+        signature.update(payload.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(signature.sign(), Base64.NO_WRAP)
     }
 }
