@@ -337,7 +337,8 @@ final class BudgetAndLedgerService
             throw new DomainException('transfer requires a distinct counter_account_id.');
         }
 
-        $ec = EthiopianCalendar::fromGregorian($txDate);
+        $dtObj = \DateTimeImmutable::createFromFormat('!Y-m-d', $txDate) ?: new \DateTimeImmutable($txDate);
+        $ec = EthiopianCalendar::fromGregorian($dtObj);
         $pmRaw = (string)($input['payment_method'] ?? 'cash');
         $pm = in_array($pmRaw, ['cash', 'bank_transfer', 'mobile_money', 'check', 'other'], true) ? $pmRaw : 'cash';
         $kind = $type === 'transfer' ? 'TRANSFER' : 'STANDARD';
