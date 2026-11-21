@@ -86,7 +86,7 @@ class ApiClient {
     required String keyAlgorithm,
     required String publicKeyPem,
   }) async {
-    return request('POST', '/devices/enroll', body: {
+    return request('POST', '/devices/register', body: {
       'device_uuid': deviceUuid,
       'device_label': deviceLabel,
       'key_algorithm': keyAlgorithm,
@@ -97,8 +97,8 @@ class ApiClient {
 
   Future<Map<String, dynamic>> acquireOfflineLease(String deviceUuid) async {
     final res = await request('POST', '/offline-lease', body: {'device_uuid': deviceUuid});
-    if (res['offline_lease_token'] is String) {
-      await _storage.write(key: _keyLease, value: res['offline_lease_token'] as String);
+    if (res['lease_token'] is String) {
+      await _storage.write(key: _keyLease, value: res['lease_token'] as String);
     }
     return res;
   }

@@ -29,6 +29,10 @@ final class AssetWorkflowService
         }
 
         return Connection::transaction(function (PDO $tx) use ($input, $actor, $itemName, $reason, $qty, $deptId): array {
+            $yearId = OperationalYearService::assertYearWritable(
+                $tx,
+                !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null
+            );
             $reqNum = AssetService::nextSequenceCode($tx, 'AREQ', 'qa_asset_requests', 'request_number');
             $urgRaw = (string)($input['urgency'] ?? 'normal');
             $urgency = in_array($urgRaw, ['low', 'normal', 'high', 'urgent'], true) ? $urgRaw : 'normal';
@@ -44,7 +48,7 @@ final class AssetWorkflowService
             );
             $stmt->execute([
                 ':num' => $reqNum,
-                ':yid' => !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null,
+                ':yid' => $yearId,
                 ':req_id' => (int)$actor['uid'],
                 ':dept_id' => $deptId,
                 ':aid' => !empty($input['asset_id']) ? (int)$input['asset_id'] : null,
@@ -313,6 +317,11 @@ final class AssetWorkflowService
             $senderSigPath, $receiverSigPath, $senderSigSha, $receiverSigSha,
             $input, $actor
         ): array {
+            $yearId = OperationalYearService::assertYearWritable(
+                $tx,
+                !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null
+            );
+
             $aStmt = $tx->prepare('SELECT * FROM qa_assets WHERE id = :id LIMIT 1 FOR UPDATE');
             $aStmt->execute([':id' => $assetId]);
             $asset = $aStmt->fetch();
@@ -432,7 +441,7 @@ final class AssetWorkflowService
                 )->execute([
                     ':aid' => $assetId,
                     ':vid' => $variantId,
-                    ':yid' => !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null,
+                    ':yid' => $yearId,
                     ':mtype' => $delta < 0 ? 'issue' : 'return',
                     ':delta' => $delta,
                     ':bal' => $newQty,
@@ -482,6 +491,11 @@ final class AssetWorkflowService
         $bin = base64_decode($clean, true);
         if ($bin === false || $bin === '' || strlen($bin) > 524288) {
             throw new DomainException('Invalid or oversized signature payload (max 512 KB).');
+        }
+        $imgInfo = @getimagesizefromstring($bin);
+        $allowedImgTypes = [IMAGETYPE_PNG, IMAGETYPE_JPEG, IMAGETYPE_WEBP];
+        if ($imgInfo === false || !in_array($imgInfo[2] ?? 0, $allowedImgTypes, true)) {
+            throw new DomainException('Signature payload must be a valid PNG, JPEG, or WebP image.');
         }
         $sha = hash('sha256', $bin);
         $baseDir = rtrim((string)qa_config('storage_path', QA_ROOT . '/storage/vault'), '/') . '/signatures/' . gmdate('Y/m');

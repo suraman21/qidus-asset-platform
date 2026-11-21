@@ -75,6 +75,17 @@ $jwt = JwtService::issueAccessToken([
 $verified = JwtService::verify($jwt);
 assertTrue($verified['state'] === 'valid' && (int)$verified['payload']['uid'] === $officerId, 'JWT sign & verify works');
 
+$impJwt = JwtService::issueAccessToken([
+    'uid' => $officerId,
+    'usr' => $officerUser,
+    'rol' => 'asset_officer',
+    'nam' => 'CI Officer',
+    'av' => 1,
+    'imp_by' => $adminId,
+]);
+$impVerified = JwtService::verify($impJwt);
+assertTrue((int)($impVerified['payload']['imp_by'] ?? 0) === $adminId, 'Impersonated JWT preserves imp_by claim');
+
 $lease = JwtService::issueOfflineLease($officerId, 'dev-ci-001', hash('sha256', random_bytes(16)), [
     'permissions' => Rbac::offlineCapabilitiesForRole('asset_officer'),
 ]);
@@ -376,9 +387,76 @@ foreach (['csv', 'html', 'pdf', 'xlsx'] as $fmt) {
     assertTrue(strlen($exp['body']) > 20, "Report exported cleanly as {$fmt}");
 }
 
-// 14. Operational Year-End Close + Carry-Forward + Reopen
+// 14. Security & Logic Audit Regressions: Signature Magic Bytes, IDOR Attachment Guard, CSV Formula Neutralization, Closed Year Lock, Over-Allocation
+$badSigBlocked = false;
+try {
+    AssetWorkflowService::createHandover($pdo, [
+        'asset_id' => $assetId,
+        'handover_type' => 'issue',
+        'receiver_display_name' => 'Test',
+        'quantity' => 1,
+        'verification_method' => 'drawn_signature',
+        'receiver_sig_b64' => base64_encode('<html>not-a-png</html>'),
+    ], $officerActor);
+} catch (\DomainException $e) {
+    $badSigBlocked = true;
+}
+assertTrue($badSigBlocked, 'Non-image drawn signature rejected by magic-byte check');
+
+// IDOR check on finance_only document
+$pdo->prepare(
+    "INSERT INTO qa_documents (doc_number, department_id, doc_type, title_en, document_date, current_version, approval_status, confidentiality, linked_entity_type, created_by)
+     VALUES (:dn, 2, 'invoice', 'Secret Finance Invoice', CURDATE(), 1, 'APPROVED', 'finance_only', 'finance_tx', :by)"
+)->execute([':dn' => 'FIN-IDOR-' . $sfx, ':by' => $adminId]);
+$finDocId = (int)$pdo->lastInsertId();
+$pdo->prepare(
+    "INSERT INTO qa_document_versions (document_id, version_number, original_filename, storage_key, mime_type, file_size_bytes, sha256_hash, uploaded_by)
+     VALUES (:did, 1, 'fin.png', 'test/fin.png', 'image/png', 10, :sha, :by)"
+)->execute([':did' => $finDocId, ':sha' => hash('sha256', 'x'), ':by' => $adminId]);
+$idorBlocked = false;
+try {
+    AssetAttachmentService::resolveForDownload($pdo, $finDocId, $officerActor);
+} catch (\DomainException $e) {
+    $idorBlocked = str_contains($e->getMessage(), 'Access denied');
+}
+assertTrue($idorBlocked, 'Asset officer blocked from finance_only attachment (IDOR guard)');
+
+// CSV Formula Injection neutralization
+$formulaAsset = AssetService::createAsset($pdo, [
+    'name_en' => '=HYPERLINK("http://evil.example","Click")',
+    'category_id' => $catId,
+    'location_id' => $locId,
+    'quantity' => 2,
+], $officerActor);
+$csvExp = AssetReportService::export($pdo, 'inventory_register', 'csv', [], $headActor);
+assertTrue(str_contains($csvExp['body'], "'=HYPERLINK"), 'CSV formula trigger prefixed safely with single quote');
+
+// Station over-allocation rejection
+$overAllocBlocked = false;
+try {
+    AssetLifecycleService::allocateStationStock($pdo, $evId, $stId, (int)$formulaAsset['id'], 999);
+} catch (\DomainException $e) {
+    $overAllocBlocked = true;
+}
+assertTrue($overAllocBlocked, 'Station over-allocation above asset stock blocked');
+
+// Operational Year-End Close + Closed-Year Write Lock + Carry-Forward + Reopen
 $closedYear = OperationalYearService::closeYear($pdo, (int)$activeYear['id'], null, $adminActor);
 assertTrue((int)$closedYear['next_year_id'] > 0, 'Year closed and carried forward to next E.C. year');
+
+$closedYearWriteBlocked = false;
+try {
+    AssetService::recordMovement($pdo, (int)$formulaAsset['id'], [
+        'operational_year_id' => (int)$activeYear['id'],
+        'movement_type' => 'outgoing',
+        'quantity_delta' => -1,
+        'reason' => 'Write into closed year',
+    ], $officerActor);
+} catch (\DomainException $e) {
+    $closedYearWriteBlocked = str_contains($e->getMessage(), 'closed');
+}
+assertTrue($closedYearWriteBlocked, 'Write into closed operational year blocked (FR-17)');
+
 $reopened = OperationalYearService::reopenYear($pdo, (int)$activeYear['id'], 'CI verification reopen', $adminActor);
 assertTrue($reopened['status'] === 'reopened', 'Year reopened with audit reason');
 $pdo->prepare("UPDATE qa_operational_years SET status = 'active' WHERE id = :id")->execute([':id' => (int)$activeYear['id']]);
@@ -437,6 +515,31 @@ assertTrue(is_array($assetsJson) && ($assetsJson['status'] ?? '') === 'success',
 $repBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/reports/assets/inventory_register", false, $ctxGet);
 $repJson = is_string($repBody) ? json_decode($repBody, true) : null;
 assertTrue(is_array($repJson) && ($repJson['status'] ?? '') === 'success', 'HTTP GET /api/v1/reports/assets/inventory_register succeeded (body=' . var_export($repBody, true) . ')');
+
+$resolveBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/assets/resolve/" . urlencode($newQr), false, $ctxGet);
+$resolveJson = is_string($resolveBody) ? json_decode($resolveBody, true) : null;
+assertTrue(is_array($resolveJson) && ($resolveJson['status'] ?? '') === 'success' && (int)($resolveJson['data']['asset']['id'] ?? 0) === $assetId, 'HTTP GET /api/v1/assets/resolve/{qr} succeeded');
+
+// HTTP brute-force login throttle check (8 fails -> 9th returns 429 RATE_LIMITED)
+$rateLimited = false;
+for ($attempt = 1; $attempt <= 9; $attempt++) {
+    $loginCtx = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/json\r\nAccept: application/json\r\n",
+            'content' => json_encode(['username' => 'rate_probe_' . $sfx, 'password' => 'WrongPass123']),
+            'ignore_errors' => true,
+            'timeout' => 5,
+        ],
+    ]);
+    $loginRes = @file_get_contents("http://127.0.0.1:{$port}/api/v1/auth/login", false, $loginCtx);
+    $loginJson = is_string($loginRes) ? json_decode($loginRes, true) : null;
+    if (($loginJson['error']['code'] ?? '') === 'RATE_LIMITED') {
+        $rateLimited = true;
+        break;
+    }
+}
+assertTrue($rateLimited, 'HTTP POST /api/v1/auth/login enforces 429 RATE_LIMITED brute-force throttle');
 
 proc_terminate($proc);
 proc_close($proc);

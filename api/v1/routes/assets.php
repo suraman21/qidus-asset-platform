@@ -275,9 +275,18 @@ function qaRouteAssets(string $method, array $sub): never
     }
 
     if ($method === 'POST' && count($sub) === 2 && ctype_digit($sub[0]) && $sub[1] === 'archive') {
-        qaRequireAuth('asset.write');
-        $pdo->prepare("UPDATE qa_assets SET status = 'archived' WHERE id = :id")->execute([':id' => (int)$sub[0]]);
-        Response::ok(['id' => (int)$sub[0], 'status' => 'archived']);
+        $auth = qaRequireAuth('asset.write');
+        $assetId = (int)$sub[0];
+        $pdo->prepare("UPDATE qa_assets SET status = 'archived' WHERE id = :id")->execute([':id' => $assetId]);
+        \QidusAsset\Security\AuditLogger::log($pdo, [
+            'actor_user_id' => (int)$auth['uid'],
+            'actor_role' => (string)$auth['role'],
+            'action' => 'asset.archive',
+            'entity_type' => 'asset',
+            'entity_id' => (string)$assetId,
+            'after' => ['status' => 'archived'],
+        ]);
+        Response::ok(['id' => $assetId, 'status' => 'archived']);
     }
 
     Response::err('Asset endpoint not found.', 404, 'ROUTE_NOT_FOUND');
@@ -294,8 +303,9 @@ function qaRouteAttachments(string $method, array $sub): never
         while (ob_get_level() > 0) {
             @ob_end_clean();
         }
+        $safeFilename = preg_replace('/[^A-Za-z0-9._-]/', '_', basename($info['original_filename'])) ?: 'attachment';
         header('Content-Type: ' . $info['mime_type']);
-        header('Content-Disposition: attachment; filename="' . str_replace('"', '', $info['original_filename']) . '"');
+        header('Content-Disposition: attachment; filename="' . $safeFilename . '"');
         header('X-Content-Type-Options: nosniff');
         header('Cache-Control: private, no-store');
         readfile($info['full_path']);

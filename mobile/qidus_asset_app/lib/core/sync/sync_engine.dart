@@ -75,11 +75,11 @@ class SyncEngine {
       final since = await db.getMeta('members_sync_since');
       final memUrl = since == null ? '/members/sync?limit=200' : '/members/sync?since=${Uri.encodeComponent(since)}&limit=200';
       final memResp = await api.request('GET', memUrl);
-      final members = (memResp['members'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
+      final members = (memResp['items'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
       final tombstones = (memResp['tombstones'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
       await db.upsertMembers(members, tombstones);
-      if (memResp['server_time_utc'] is String) {
-        await db.setMeta('members_sync_since', memResp['server_time_utc'] as String);
+      if (memResp['next_cursor'] is String) {
+        await db.setMeta('members_sync_since', memResp['next_cursor'] as String);
       }
       pulledMembers = members.length;
 

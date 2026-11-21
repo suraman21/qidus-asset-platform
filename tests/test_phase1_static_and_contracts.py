@@ -182,9 +182,26 @@ def test_no_hardcoded_secrets_or_insecure_auth_patterns() -> None:
 
 def test_htaccess_blocks_internal_directories_and_env_files() -> None:
     htaccess = read_text(".htaccess")
-    assert "^(backend|database|storage|tests|docs|vendor|\\.git)/" in htaccess
+    assert "^(backend|database|storage|tests|docs|vendor|mobile|\\.git)/" in htaccess
     assert "_env\\.php" in htaccess
     assert "HTTP_AUTHORIZATION" in htaccess
+    assert "Permissions-Policy" in htaccess
+
+
+def test_mobile_api_route_parity() -> None:
+    api_client = read_text("mobile/qidus_asset_app/lib/core/api/api_client.dart")
+    assert "'/devices/register'" in api_client
+    assert "'/devices/enroll'" not in api_client
+    assert "res['lease_token']" in api_client
+    assert "offline_lease_token" not in api_client
+
+    sync_engine = read_text("mobile/qidus_asset_app/lib/core/sync/sync_engine.dart")
+    assert "memResp['items']" in sync_engine
+    assert "memResp['next_cursor']" in sync_engine
+
+    qr_scan = read_text("mobile/qidus_asset_app/lib/features/scan/qr_scan_screen.dart")
+    assert "'/assets/resolve/" in qr_scan
+    assert "/assets/by-qr/" not in qr_scan
 
 
 def test_migrate_script_is_cli_only() -> None:

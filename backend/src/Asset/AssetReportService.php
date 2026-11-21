@@ -263,7 +263,11 @@ final class AssetReportService
             foreach ($report['rows'] as $row) {
                 $line = [];
                 foreach ($report['columns'] as $col) {
-                    $line[] = $row[$col] ?? '';
+                    $val = (string)($row[$col] ?? '');
+                    if ($val !== '' && !is_numeric($val) && preg_match('/^[=+\-@\t\r]/', $val) === 1) {
+                        $val = "'" . $val;
+                    }
+                    $line[] = $val;
                 }
                 fputcsv($fh, $line);
             }

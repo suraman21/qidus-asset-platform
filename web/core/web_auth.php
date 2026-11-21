@@ -25,6 +25,8 @@ function qaWebBootSession(): void
         header('X-Frame-Options: SAMEORIGIN');
         header('X-Content-Type-Options: nosniff');
         header('Referrer-Policy: strict-origin-when-cross-origin');
+        header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'");
+        header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
     }
 
     if (empty($_SESSION['qa_csrf'])) {
@@ -90,11 +92,24 @@ function qaWebCurrentUser(): ?array
 function qaWebAttemptLogin(string $username, string $password): array
 {
     $pdo = Connection::get();
+    $cleanUser = trim($username);
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    $rateStmt = $pdo->prepare(
+        "SELECT COUNT(*) FROM qa_audit_logs
+         WHERE action IN ('auth.login_failed','web.login_failed')
+           AND server_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+           AND (entity_id = :u OR (:ip <> '' AND ip_address = :ip2))"
+    );
+    $rateStmt->execute([':u' => $cleanUser, ':ip' => $ip, ':ip2' => $ip]);
+    if ((int)$rateStmt->fetchColumn() >= 8) {
+        return ['ok' => false, 'error' => 'Too many failed login attempts. Please wait 15 minutes before retrying.'];
+    }
+
     $stmt = $pdo->prepare(
         'SELECT id, username, full_name, qa_role, password_hash, is_active, auth_version
          FROM qa_users WHERE username = :u LIMIT 1'
     );
-    $stmt->execute([':u' => trim($username)]);
+    $stmt->execute([':u' => $cleanUser]);
     $user = $stmt->fetch();
 
     if (!$user || !PasswordService::verify($password, $user['password_hash'])) {

@@ -128,7 +128,8 @@ class _HandoverScreenState extends State<HandoverScreen> {
           idempotencyKey: txUuid,
           deviceUuid: deviceUuid,
         );
-        if (mounted) setState(() => _message = 'Handover synced: ${res['handover_number'] ?? txUuid}');
+        final handoverObj = (res['handover'] as Map?) ?? res;
+        if (mounted) setState(() => _message = 'Handover synced: ${handoverObj['handover_number'] ?? txUuid}');
       } catch (_) {
         await LocalDb.instance.enqueueOutbox(
           clientTxUuid: txUuid,

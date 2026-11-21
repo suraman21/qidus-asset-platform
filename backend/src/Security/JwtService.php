@@ -55,6 +55,9 @@ final class JwtService
             $payload['fid'] = (string)$claims['fid'];
             $payload['rsid'] = (string)$claims['rsid'];
         }
+        if (!empty($claims['imp_by'])) {
+            $payload['imp_by'] = (int)$claims['imp_by'];
+        }
         return self::signPayload($payload, self::secret());
     }
 

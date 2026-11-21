@@ -43,6 +43,20 @@ function qaAuthLogin(): never
     }
 
     $pdo = Connection::get();
+
+    // Sliding-window brute-force throttle (max 8 failed attempts per 15 min per username or IP)
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    $rateStmt = $pdo->prepare(
+        "SELECT COUNT(*) FROM qa_audit_logs
+         WHERE action IN ('auth.login_failed','web.login_failed')
+           AND server_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+           AND (entity_id = :u OR (:ip <> '' AND ip_address = :ip2))"
+    );
+    $rateStmt->execute([':u' => $username, ':ip' => $ip, ':ip2' => $ip]);
+    if ((int)$rateStmt->fetchColumn() >= 8) {
+        Response::err('Too many failed login attempts. Please wait 15 minutes and try again.', 429, 'RATE_LIMITED');
+    }
+
     $stmt = $pdo->prepare(
         'SELECT id, username, full_name, full_name_am, qa_role, department_id,
                 password_hash, is_active, auth_version, external_user_id

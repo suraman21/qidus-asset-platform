@@ -15,8 +15,9 @@ final class AssetService
     {
         $ecYear = EthiopianCalendar::today((string)qa_config('timezone'))['year'];
         $like = sprintf('%s-%d-%%', $prefix, $ecYear);
+        $lock = $pdo->inTransaction() ? ' FOR UPDATE' : '';
         $stmt = $pdo->prepare(
-            "SELECT {$column} FROM {$table} WHERE {$column} LIKE :pat ORDER BY id DESC LIMIT 1"
+            "SELECT {$column} FROM {$table} WHERE {$column} LIKE :pat ORDER BY id DESC LIMIT 1{$lock}"
         );
         $stmt->execute([':pat' => $like]);
         $last = $stmt->fetchColumn();
@@ -299,6 +300,11 @@ final class AssetService
         $variantId = !empty($input['variant_id']) ? (int)$input['variant_id'] : null;
 
         return Connection::transaction(function (PDO $tx) use ($assetId, $movementType, $qtyDelta, $reason, $variantId, $input, $actor): array {
+            $yearId = OperationalYearService::assertYearWritable(
+                $tx,
+                !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null
+            );
+
             $stmt = $tx->prepare('SELECT * FROM qa_assets WHERE id = :id LIMIT 1 FOR UPDATE');
             $stmt->execute([':id' => $assetId]);
             $asset = $stmt->fetch();
@@ -358,7 +364,7 @@ final class AssetService
             $movStmt->execute([
                 ':aid' => $assetId,
                 ':vid' => $variantId,
-                ':yid' => !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null,
+                ':yid' => $yearId,
                 ':mtype' => $movementType,
                 ':delta' => $qtyDelta,
                 ':bal' => $newAssetQty,

@@ -152,6 +152,10 @@ final class AssetLifecycleService
         }
 
         return Connection::transaction(function (PDO $tx) use ($input, $actor, $nameEn, $eventDate): array {
+            $yearId = OperationalYearService::assertYearWritable(
+                $tx,
+                !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null
+            );
             $code = AssetService::nextSequenceCode($tx, 'EVT', 'qa_events', 'event_code');
             $stmt = $tx->prepare(
                 "INSERT INTO qa_events (
@@ -168,7 +172,7 @@ final class AssetLifecycleService
             $stmt->execute([
                 ':code' => $code,
                 ':tpl' => !empty($input['template_id']) ? (int)$input['template_id'] : null,
-                ':yid' => !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null,
+                ':yid' => $yearId,
                 ':ne' => $nameEn,
                 ':na' => $input['name_am'] ?? null,
                 ':edate' => $eventDate,
@@ -236,18 +240,34 @@ final class AssetLifecycleService
         if ($qty <= 0) {
             throw new DomainException('allocated_qty must be positive.');
         }
-        $stmt = $pdo->prepare(
-            'INSERT INTO qa_event_allocations (event_id, station_id, asset_id, variant_id, allocated_qty)
-             VALUES (:eid, :sid, :aid, :vid, :qty)'
-        );
-        $stmt->execute([
-            ':eid' => $eventId,
-            ':sid' => $stationId,
-            ':aid' => $assetId,
-            ':vid' => $variantId,
-            ':qty' => $qty,
-        ]);
-        return ['id' => (int)$pdo->lastInsertId(), 'allocated_qty' => $qty];
+
+        return Connection::transaction(function (PDO $tx) use ($eventId, $stationId, $assetId, $qty, $variantId): array {
+            $aStmt = $tx->prepare('SELECT quantity FROM qa_assets WHERE id = :aid LIMIT 1 FOR UPDATE');
+            $aStmt->execute([':aid' => $assetId]);
+            $avail = $aStmt->fetchColumn();
+            if ($avail === false) {
+                throw new DomainException('Asset not found for station allocation.');
+            }
+            $sumStmt = $tx->prepare('SELECT COALESCE(SUM(allocated_qty), 0) FROM qa_event_allocations WHERE event_id = :eid AND asset_id = :aid');
+            $sumStmt->execute([':eid' => $eventId, ':aid' => $assetId]);
+            $alreadyAllocated = (int)$sumStmt->fetchColumn();
+            if (($alreadyAllocated + $qty) > (int)$avail) {
+                throw new DomainException("Total station allocation exceeds available asset stock ({$avail}).");
+            }
+
+            $stmt = $tx->prepare(
+                'INSERT INTO qa_event_allocations (event_id, station_id, asset_id, variant_id, allocated_qty)
+                 VALUES (:eid, :sid, :aid, :vid, :qty)'
+            );
+            $stmt->execute([
+                ':eid' => $eventId,
+                ':sid' => $stationId,
+                ':aid' => $assetId,
+                ':vid' => $variantId,
+                ':qty' => $qty,
+            ]);
+            return ['id' => (int)$tx->lastInsertId(), 'allocated_qty' => $qty];
+        });
     }
 
     /**
@@ -335,7 +355,11 @@ final class AssetLifecycleService
                     return ['status' => 'replayed', 'id' => (int)$existing['id'], 'conflict_status' => $existing['conflict_status']];
                 }
 
-                $conflictStatus = 'clean';
+                $evStatusStmt = $db->prepare('SELECT status FROM qa_events WHERE id = :eid LIMIT 1');
+                $evStatusStmt->execute([':eid' => $eventId]);
+                $evStatus = (string)($evStatusStmt->fetchColumn() ?: '');
+
+                $conflictStatus = $evStatus === 'closed' ? 'needs_review' : 'clean';
                 $allocStmt = $db->prepare(
                     'SELECT id, allocated_qty, issued_qty, returned_qty
                      FROM qa_event_allocations
@@ -345,7 +369,7 @@ final class AssetLifecycleService
                 $allocStmt->execute([':eid' => $eventId, ':sid' => $stationId, ':aid' => $assetId]);
                 $alloc = $allocStmt->fetch();
 
-                if ($alloc) {
+                if ($alloc && $evStatus !== 'closed') {
                     if ($txType === 'issue') {
                         if (((int)$alloc['issued_qty'] + $qty) > (int)$alloc['allocated_qty']) {
                             $conflictStatus = 'needs_review';
@@ -455,6 +479,10 @@ final class AssetLifecycleService
         }
 
         return Connection::transaction(function (PDO $tx) use ($assetId, $issue, $input, $actor): array {
+            $yearId = OperationalYearService::assertYearWritable(
+                $tx,
+                !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null
+            );
             $tNum = AssetService::nextSequenceCode($tx, 'MNT', 'qa_asset_maintenance', 'ticket_number');
             $mTypeRaw = (string)($input['maintenance_type'] ?? 'corrective');
             $mType = in_array($mTypeRaw, ['preventive', 'corrective'], true) ? $mTypeRaw : 'corrective';
@@ -474,7 +502,7 @@ final class AssetLifecycleService
             )->execute([
                 ':tnum' => $tNum,
                 ':aid' => $assetId,
-                ':yid' => !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null,
+                ':yid' => $yearId,
                 ':mtype' => $mType,
                 ':prio' => $priority,
                 ':descr' => $issue,
@@ -548,8 +576,14 @@ final class AssetLifecycleService
             } elseif ($newStatus === 'completed') {
                 $condRaw = (string)($input['post_condition'] ?? 'good');
                 $cond = in_array($condRaw, ['new', 'good', 'fair', 'poor', 'damaged'], true) ? $condRaw : 'good';
-                $tx->prepare("UPDATE qa_assets SET status = 'in_stock', condition_status = :cond WHERE id = :aid")
-                    ->execute([':cond' => $cond, ':aid' => (int)$ticket['asset_id']]);
+                $aStmt = $tx->prepare('SELECT tracking_mode, quantity, min_quantity FROM qa_assets WHERE id = :aid LIMIT 1');
+                $aStmt->execute([':aid' => (int)$ticket['asset_id']]);
+                $assetRow = $aStmt->fetch();
+                $restoredStatus = $assetRow
+                    ? AssetService::deriveStockStatus((string)$assetRow['tracking_mode'], (int)$assetRow['quantity'], (int)$assetRow['min_quantity'], 'in_stock')
+                    : 'in_stock';
+                $tx->prepare('UPDATE qa_assets SET status = :st, condition_status = :cond WHERE id = :aid')
+                    ->execute([':st' => $restoredStatus, ':cond' => $cond, ':aid' => (int)$ticket['asset_id']]);
             }
 
             AuditLogger::log($tx, [
@@ -766,6 +800,10 @@ final class AssetLifecycleService
             }
         }
 
+        $yearId = OperationalYearService::assertYearWritable(
+            $pdo,
+            !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null
+        );
         $num = AssetService::nextSequenceCode($pdo, 'DSP', 'qa_asset_disposals', 'disposal_number');
         $pdo->prepare(
             "INSERT INTO qa_asset_disposals (
@@ -775,7 +813,7 @@ final class AssetLifecycleService
         )->execute([
             ':num' => $num,
             ':aid' => $assetId,
-            ':yid' => !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null,
+            ':yid' => $yearId,
             ':rtype' => $reasonType,
             ':rdet' => $reasonDetail,
             ':proc' => isset($input['proceeds_amount']) && $input['proceeds_amount'] !== '' ? (float)$input['proceeds_amount'] : null,

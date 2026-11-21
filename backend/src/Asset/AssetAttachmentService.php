@@ -201,7 +201,8 @@ final class AssetAttachmentService
     public static function resolveForDownload(PDO $pdo, int $docId, array $actor): array
     {
         $stmt = $pdo->prepare(
-            'SELECT d.id, d.is_archived, v.version_number, v.original_filename, v.storage_key, v.mime_type, v.sha256_hash
+            'SELECT d.id, d.department_id, d.confidentiality, d.linked_entity_type, d.is_archived,
+                    v.version_number, v.original_filename, v.storage_key, v.mime_type, v.sha256_hash
              FROM qa_documents d
              JOIN qa_document_versions v ON v.document_id = d.id AND v.version_number = d.current_version
              WHERE d.id = :id
@@ -213,9 +214,25 @@ final class AssetAttachmentService
             throw new DomainException('Attachment not found.');
         }
 
+        // Prevent IDOR across departments / restricted finance & leadership documents
+        $assetEntityTypes = ['asset', 'asset_maintenance', 'asset_handover', 'asset_inspection', 'asset_disposal'];
+        $role = (string)($actor['role'] ?? '');
+        $isPrivileged = in_array($role, ['system_admin', 'chairperson', 'deputy_chairperson', 'auditor', 'secretary'], true);
+        if (!$isPrivileged) {
+            $linkedType = (string)($row['linked_entity_type'] ?? '');
+            $conf = (string)($row['confidentiality'] ?? 'department');
+            if (!in_array($linkedType, $assetEntityTypes, true)
+                || $conf === 'leadership_only'
+                || $conf === 'finance_only') {
+                throw new DomainException('Access denied for this document scope.');
+            }
+        }
+
         $vaultBase = rtrim((string)qa_config('storage_path', QA_ROOT . '/storage/vault'), '/');
+        $realBase = realpath($vaultBase);
         $fullPath = $vaultBase . '/' . ltrim((string)$row['storage_key'], '/');
-        if (!is_file($fullPath)) {
+        $realFull = realpath($fullPath);
+        if ($realBase === false || $realFull === false || !str_starts_with($realFull, $realBase . DIRECTORY_SEPARATOR) || !is_file($realFull)) {
             throw new DomainException('Stored attachment file missing on disk.');
         }
 
@@ -230,7 +247,7 @@ final class AssetAttachmentService
         ]);
 
         return [
-            'full_path' => $fullPath,
+            'full_path' => $realFull,
             'mime_type' => (string)$row['mime_type'],
             'original_filename' => (string)$row['original_filename'],
             'sha256_hash' => (string)$row['sha256_hash'],

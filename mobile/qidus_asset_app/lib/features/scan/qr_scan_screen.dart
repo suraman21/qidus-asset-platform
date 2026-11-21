@@ -39,9 +39,12 @@ class _QrScanScreenState extends State<QrScanScreen> {
     Map<String, dynamic>? found = await LocalDb.instance.findAssetByQr(clean);
     if (found == null) {
       try {
-        final remote = await widget.api.request('GET', '/assets/by-qr/${Uri.encodeComponent(clean)}');
-        found = remote;
-        await LocalDb.instance.upsertAssets([remote]);
+        final remote = await widget.api.request('GET', '/assets/resolve/${Uri.encodeComponent(clean)}');
+        final assetObj = (remote['asset'] as Map<String, dynamic>?) ?? remote;
+        if (assetObj['id'] != null) {
+          found = assetObj;
+          await LocalDb.instance.upsertAssets([assetObj]);
+        }
       } catch (_) {}
     }
     if (!mounted) return;
