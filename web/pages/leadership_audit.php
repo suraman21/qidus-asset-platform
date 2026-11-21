@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $fname = trim((string)($_POST['full_name'] ?? ''));
                 $newRole = (string)($_POST['qa_role'] ?? 'requester');
                 $pass = (string)($_POST['password'] ?? '');
-                if ($uname === '' || $fname === '' || strlen($pass) < 10 || !array_key_exists($newRole, Rbac::ROLE_PERMISSIONS)) {
+                if ($uname === '' || $fname === '' || strlen($pass) < 10 || !in_array($newRole, Rbac::ALL_ROLES, true)) {
                     throw new \DomainException('Valid username, full_name, role, and 10+ char password required.');
                 }
                 $pdo->prepare(
@@ -232,7 +232,7 @@ qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static 
             <div><label>Full Name</label><input name="full_name" class="qa-input" required></div>
           </div>
           <div class="qa-field" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-            <div><label>Role</label><select name="qa_role" class="qa-select" style="width:100%;"><?php foreach (array_keys(Rbac::ROLE_PERMISSIONS) as $rk): ?><option value="<?= e($rk) ?>"><?= e($rk) ?></option><?php endforeach; ?></select></div>
+            <div><label>Role</label><select name="qa_role" class="qa-select" style="width:100%;"><?php foreach (Rbac::ALL_ROLES as $rk): ?><option value="<?= e($rk) ?>"><?= e($rk) ?></option><?php endforeach; ?></select></div>
             <div><label>Department</label><select name="department_id" class="qa-select" style="width:100%;"><option value="1">Asset Dept</option><option value="2">Finance Dept</option></select></div>
             <div><label>Password (10+)</label><input name="password" type="password" minlength="10" class="qa-input" required></div>
           </div>

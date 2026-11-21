@@ -6,6 +6,7 @@ require_once __DIR__ . '/core/auth_guard.php';
 require_once __DIR__ . '/routes/auth.php';
 require_once __DIR__ . '/routes/core.php';
 require_once __DIR__ . '/routes/assets.php';
+require_once __DIR__ . '/routes/finance.php';
 
 use QidusAsset\Support\EthiopianCalendar;
 use QidusAsset\Support\Response;
@@ -45,9 +46,18 @@ try {
         qaHandleCoreRoute($method, $segments);
     }
 
+    if (($segments[0] ?? '') === 'reports' && ($segments[1] ?? '') === 'finance') {
+        qaHandleFinanceRoute($method, $segments);
+    }
+
     $assetPrefixes = ['assets', 'asset-categories', 'asset-locations', 'attachments', 'asset-requests', 'handovers', 'event-templates', 'events', 'maintenance', 'inspections', 'disposals', 'reports'];
     if (in_array($segments[0] ?? '', $assetPrefixes, true)) {
         qaHandleAssetRoute($method, $segments);
+    }
+
+    $financePrefixes = ['fin-categories', 'fin-accounts', 'budgets', 'budget-amendments', 'ledger', 'reconciliations', 'contributions', 'suppliers', 'procurement-requests', 'purchase-orders', 'doc-folders', 'documents'];
+    if (in_array($segments[0] ?? '', $financePrefixes, true)) {
+        qaHandleFinanceRoute($method, $segments);
     }
 
     Response::err('Endpoint not found.', 404, 'ROUTE_NOT_FOUND');

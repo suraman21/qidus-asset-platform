@@ -15,6 +15,9 @@ use QidusAsset\Asset\AssetWorkflowService;
 use QidusAsset\Asset\OperationalYearService;
 use QidusAsset\Connector\ConnectorFactory;
 use QidusAsset\Database\Connection;
+use QidusAsset\Finance\BudgetAndLedgerService;
+use QidusAsset\Finance\DocumentVaultService;
+use QidusAsset\Finance\ProcurementService;
 use QidusAsset\Security\BiometricVerifier;
 use QidusAsset\Security\JwtService;
 use QidusAsset\Security\PasswordService;
@@ -61,6 +64,10 @@ $headId = (int)$pdo->lastInsertId();
 
 $ins->execute([':u' => $deputyUser, ':n' => 'CI Deputy', ':r' => 'deputy_chairperson', ':d' => 1, ':p' => $passHash]);
 $deputyId = (int)$pdo->lastInsertId();
+
+$finHeadUser = 'ci_finhead_' . $sfx;
+$ins->execute([':u' => $finHeadUser, ':n' => 'CI Finance Head', ':r' => 'finance_head', ':d' => 2, ':p' => $passHash]);
+$finHeadId = (int)$pdo->lastInsertId();
 
 assertTrue(PasswordService::verify('TestPass#2026!', $passHash), 'Password verification works');
 
@@ -124,6 +131,7 @@ $adminActor = ['uid' => $adminId, 'role' => 'system_admin', 'department_id' => 1
 $officerActor = ['uid' => $officerId, 'role' => 'asset_officer', 'department_id' => 1, 'device_uuid' => $deviceUuid];
 $headActor = ['uid' => $headId, 'role' => 'asset_head', 'department_id' => 1, 'device_uuid' => null];
 $deputyActor = ['uid' => $deputyId, 'role' => 'deputy_chairperson', 'department_id' => 1, 'device_uuid' => null];
+$finHeadActor = ['uid' => $finHeadId, 'role' => 'finance_head', 'department_id' => 2, 'device_uuid' => null];
 
 $prof = AssetService::upsertMemberAssetProfile($pdo, $extStu1, ['clothing_size' => 'M', 'shoe_size' => '41'], $officerActor);
 assertTrue(($prof['member']['clothing_size'] ?? null) === 'M', 'Member clothing size profile saved');
@@ -541,7 +549,176 @@ for ($attempt = 1; $attempt <= 9; $attempt++) {
 }
 assertTrue($rateLimited, 'HTTP POST /api/v1/auth/login enforces 429 RATE_LIMITED brute-force throttle');
 
+// ============================================================================
+// PHASE 3: Department 2 (Finance, Budget, Reconciliation, Procurement & Docs)
+// ============================================================================
+$finAcc = BudgetAndLedgerService::createAccount($pdo, [
+    'account_code' => 'CBE_' . strtoupper($sfx),
+    'name_en' => 'CBE Main Checking',
+    'account_type' => 'bank',
+    'opening_balance' => 10000.00,
+], $finHeadActor);
+$accId = (int)$finAcc['id'];
+
+$expCatId = (int)$pdo->query("SELECT id FROM qa_fin_categories WHERE code = 'EXP_ASSET' LIMIT 1")->fetchColumn();
+$budget = BudgetAndLedgerService::createBudget($pdo, [
+    'department_id' => 2,
+    'category_id' => $expCatId,
+    'line_code' => 'BL_' . strtoupper($sfx),
+    'title_en' => 'Equipment & Supplies',
+    'approved_amount' => 3000.00,
+], $finHeadActor);
+$budgetId = (int)$budget['id'];
+BudgetAndLedgerService::approveBudget($pdo, $budgetId, $deputyActor);
+
+// Budget amendment increase +500
+$amd = BudgetAndLedgerService::requestAmendment($pdo, [
+    'amendment_type' => 'increase',
+    'to_budget_id' => $budgetId,
+    'amount' => 500.00,
+    'reason' => 'Choir microphone price adjustment',
+], $officerActor);
+BudgetAndLedgerService::decideAmendment($pdo, (int)$amd['id'], 'finance_head', 'approve', 'Reviewed', $finHeadActor);
+BudgetAndLedgerService::decideAmendment($pdo, (int)$amd['id'], 'deputy', 'approve', 'Approved', $deputyActor);
+
+// Ledger income + expense + append-only REVERSAL
+$incTx = BudgetAndLedgerService::postTransaction($pdo, [
+    'type' => 'income',
+    'account_id' => $accId,
+    'amount' => 1500.00,
+    'description' => 'Holiday offering deposit',
+], $finHeadActor);
+$expTx = BudgetAndLedgerService::postTransaction($pdo, [
+    'type' => 'expense',
+    'account_id' => $accId,
+    'category_id' => $expCatId,
+    'budget_id' => $budgetId,
+    'amount' => 400.00,
+    'description' => 'Cable purchase',
+], $finHeadActor);
+$revTx = BudgetAndLedgerService::reverseTransaction($pdo, (int)$expTx['id'], 'Duplicate voucher', $finHeadActor);
+assertTrue(!empty($revTx['tx_number']), 'Append-only ledger REVERSAL posted cleanly');
+
+// Bank reconciliation + Member contribution
+$rec = BudgetAndLedgerService::createReconciliation($pdo, [
+    'account_id' => $accId,
+    'period_start' => gmdate('Y-m-01'),
+    'period_end' => gmdate('Y-m-d'),
+    'statement_ending_balance' => 11500.00,
+], $finHeadActor);
+$linesRes = BudgetAndLedgerService::addStatementLines($pdo, (int)$rec['id'], [
+    ['description' => 'Offering deposit', 'credit' => 1500.00],
+]);
+assertTrue($linesRes['added_lines'] === 1, 'Bank statement line added');
+$lineId = (int)$pdo->query('SELECT id FROM qa_fin_bank_statement_lines WHERE reconciliation_id = ' . (int)$rec['id'] . ' LIMIT 1')->fetchColumn();
+BudgetAndLedgerService::matchStatementLine($pdo, (int)$rec['id'], $lineId, (int)$incTx['id'], $finHeadActor);
+$recFin = BudgetAndLedgerService::finalizeReconciliation($pdo, (int)$rec['id'], $finHeadActor);
+assertTrue($recFin['status'] === 'reconciled', 'Bank reconciliation finalized');
+
+$contrib = BudgetAndLedgerService::recordMemberContribution($pdo, [
+    'external_member_id' => $extStu1,
+    'account_id' => $accId,
+    'ec_month' => 3,
+    'expected_amount' => 100.00,
+    'paid_amount' => 100.00,
+], $finHeadActor);
+assertTrue($contrib['status'] === 'paid', 'Member monthly contribution posted');
+
+// Procurement: Stock Gate + Budget Gate + 3-Stage Approval + Quotation + PO + GRN -> Asset Stock + Pay PO
+$sup = ProcurementService::createSupplier($pdo, ['name' => 'Addis Sound & Supplies ' . $sfx], $finHeadActor);
+$prBlocked = ProcurementService::createPurchaseRequest($pdo, [
+    'title' => 'Redundant Purchase Check',
+    'justification' => 'Already in stock test',
+    'budget_id' => $budgetId,
+    'items' => [['asset_id' => (int)$formulaAsset['id'], 'item_name' => 'Formula Asset', 'requested_qty' => 1, 'estimated_unit_price' => 50]],
+], $officerActor);
+$sc1 = ProcurementService::performStockCheck($pdo, (int)$prBlocked['id'], 'Checked store', $headActor);
+assertTrue($sc1['stock_check_status'] === 'IN_STOCK_FULFILLABLE', 'Stock check detects fulfillable stock');
+$inStockBlocked = false;
+try {
+    ProcurementService::runBudgetGateAndSubmit($pdo, (int)$prBlocked['id'], $budgetId, $finHeadActor);
+} catch (\DomainException $e) {
+    $inStockBlocked = true;
+}
+assertTrue($inStockBlocked, 'Budget gate blocks purchasing items already in Asset stock');
+
+$pr = ProcurementService::createPurchaseRequest($pdo, [
+    'title' => 'New Choir Microphones',
+    'justification' => 'Sunday hall amplification',
+    'budget_id' => $budgetId,
+    'items' => [['asset_id' => (int)$formulaAsset['id'], 'item_name' => 'Wireless Mic', 'item_type' => 'fixed_asset', 'requested_qty' => 5, 'estimated_unit_price' => 400.00]],
+], $officerActor);
+$prId = (int)$pr['id'];
+$sc2 = ProcurementService::performStockCheck($pdo, $prId, 'Only 2 in store, buy 3', $headActor);
+assertTrue($sc2['stock_check_status'] === 'PARTIAL_STOCK', 'Partial stock detected cleanly');
+$bg = ProcurementService::runBudgetGateAndSubmit($pdo, $prId, $budgetId, $finHeadActor);
+assertTrue($bg['status'] === 'PENDING_DEPARTMENT_HEAD', 'Budget gate passed and routed to Dept Head');
+ProcurementService::decidePrStage($pdo, $prId, 'dept_head', 'approve', 'Needed', $headActor);
+ProcurementService::decidePrStage($pdo, $prId, 'finance', 'approve', 'Budget OK', $finHeadActor);
+ProcurementService::decidePrStage($pdo, $prId, 'deputy', 'approve', 'Approved', $deputyActor);
+$quote = ProcurementService::addQuotation($pdo, $prId, ['supplier_id' => (int)$sup['id'], 'quoted_total' => 1150.00], $finHeadActor);
+$po = ProcurementService::issuePurchaseOrder($pdo, $prId, ['quotation_id' => (int)$quote['id']], $finHeadActor);
+assertTrue($po['status'] === 'ISSUED', 'PO issued and budget committed');
+
+$qtyBeforeGrn = (int)$pdo->query('SELECT quantity FROM qa_assets WHERE id = ' . (int)$formulaAsset['id'])->fetchColumn();
+$grn = ProcurementService::receiveGoods($pdo, (int)$po['id'], [], $headActor);
+$qtyAfterGrn = (int)$pdo->query('SELECT quantity FROM qa_assets WHERE id = ' . (int)$formulaAsset['id'])->fetchColumn();
+assertTrue($grn['po_status'] === 'RECEIVED' && $qtyAfterGrn === ($qtyBeforeGrn + 3), 'GRN automatically credited Asset Dept stock (+3 to_buy)');
+
+$paidPo = ProcurementService::payPurchaseOrder($pdo, (int)$po['id'], ['account_id' => $accId], $finHeadActor);
+assertTrue($paidPo['po_status'] === 'PAID', 'PO paid and posted to ledger');
+
+// Document Vault: upload restricted doc, add v2, approve, verify restricted isolation
+$tmpPdf = tempnam(sys_get_temp_dir(), 'qapdf_');
+file_put_contents((string)$tmpPdf, "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+$vDoc = DocumentVaultService::uploadNewDocument($pdo, (string)$tmpPdf, 'contract.pdf', [
+    'doc_type' => 'contract',
+    'title_en' => 'Supplier Audio Contract',
+    'confidentiality' => 'restricted',
+], $finHeadActor);
+$vDocId = (int)$vDoc['document_id'];
+$v2 = DocumentVaultService::addVersion($pdo, $vDocId, (string)$tmpPdf, 'contract_v2.pdf', 'Signed addendum', $finHeadActor);
+assertTrue((int)$v2['version_number'] === 2, 'Document Vault version v2 uploaded');
+DocumentVaultService::decideDocument($pdo, $vDocId, 'approve', $deputyActor);
+$restrictedBlocked = false;
+try {
+    DocumentVaultService::resolveForDownload($pdo, $vDocId, $officerActor);
+} catch (\DomainException $e) {
+    $restrictedBlocked = true;
+}
+assertTrue($restrictedBlocked, 'Restricted document blocked for asset_officer');
+$dlDoc = DocumentVaultService::resolveForDownload($pdo, $vDocId, $finHeadActor);
+assertTrue($dlDoc['mime_type'] === 'application/pdf', 'Finance head downloaded restricted PDF v2');
+@unlink((string)$tmpPdf);
+
+// Finance Reports + HTTP Phase 3 route check
+$finRepExp = BudgetAndLedgerService::exportReport($pdo, 'budget_vs_actual', 'csv', [], $finHeadActor);
+assertTrue(str_contains($finRepExp['body'], 'BL_' . strtoupper($sfx)), 'Finance budget_vs_actual report CSV exported');
+
+$finJwt = JwtService::issueAccessToken([
+    'uid' => $finHeadId,
+    'usr' => $finHeadUser,
+    'rol' => 'finance_head',
+    'nam' => 'CI Finance Head',
+    'av' => 1,
+]);
+$ctxFinGet = stream_context_create([
+    'http' => [
+        'method' => 'GET',
+        'header' => "Authorization: Bearer {$finJwt}\r\nAccept: application/json\r\n",
+        'ignore_errors' => true,
+        'timeout' => 5,
+    ],
+]);
+$budgetsBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/budgets", false, $ctxFinGet);
+$budgetsJson = is_string($budgetsBody) ? json_decode($budgetsBody, true) : null;
+assertTrue(is_array($budgetsJson) && ($budgetsJson['status'] ?? '') === 'success', 'HTTP GET /api/v1/budgets succeeded');
+
+$finRepBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/reports/finance/budget_vs_actual", false, $ctxFinGet);
+$finRepJson = is_string($finRepBody) ? json_decode($finRepBody, true) : null;
+assertTrue(is_array($finRepJson) && ($finRepJson['status'] ?? '') === 'success', 'HTTP GET /api/v1/reports/finance/budget_vs_actual succeeded');
+
 proc_terminate($proc);
 proc_close($proc);
 
-echo "ALL PHP + MARIADB + HTTP STEP A SMOKE CHECKS PASSED.\n";
+echo "ALL PHP + MARIADB + HTTP PHASE 1-3 SMOKE CHECKS PASSED.\n";
