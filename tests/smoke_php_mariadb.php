@@ -54,13 +54,13 @@ $ins->execute([':u' => $adminUser, ':n' => 'CI Admin', ':r' => 'system_admin', '
 $adminId = (int)$pdo->lastInsertId();
 
 $ins->execute([':u' => $officerUser, ':n' => 'CI Officer', ':r' => 'asset_officer', ':d' => 1, ':p' => $passHash]);
-$officerId = (int)$ins->lastInsertId();
+$officerId = (int)$pdo->lastInsertId();
 
 $ins->execute([':u' => $headUser, ':n' => 'CI Asset Head', ':r' => 'asset_head', ':d' => 1, ':p' => $passHash]);
-$headId = (int)$ins->lastInsertId();
+$headId = (int)$pdo->lastInsertId();
 
 $ins->execute([':u' => $deputyUser, ':n' => 'CI Deputy', ':r' => 'deputy_chairperson', ':d' => 1, ':p' => $passHash]);
-$deputyId = (int)$ins->lastInsertId();
+$deputyId = (int)$pdo->lastInsertId();
 
 assertTrue(PasswordService::verify('TestPass#2026!', $passHash), 'Password verification works');
 
