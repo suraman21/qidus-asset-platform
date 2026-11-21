@@ -375,6 +375,17 @@ final class AssetWorkflowService
             );
             $condRaw = (string)($input['condition_at_handover'] ?? 'good');
             $condVal = in_array($condRaw, ['new', 'good', 'fair', 'poor', 'damaged'], true) ? $condRaw : 'good';
+            $mcId = !empty($input['member_cache_id']) ? (int)$input['member_cache_id'] : null;
+            $extMemId = trim((string)($input['receiver_member_external_id'] ?? $input['external_member_id'] ?? ''));
+            if ($mcId === null && $extMemId !== '') {
+                $mLookup = $tx->prepare('SELECT id FROM qa_member_sync_cache WHERE external_member_id = :ext LIMIT 1');
+                $mLookup->execute([':ext' => $extMemId]);
+                $resolvedMc = (int)($mLookup->fetchColumn() ?: 0);
+                if ($resolvedMc > 0) {
+                    $mcId = $resolvedMc;
+                }
+            }
+
             $hStmt->execute([
                 ':hnum' => $hndNum,
                 ':yid' => !empty($input['operational_year_id']) ? (int)$input['operational_year_id'] : null,
@@ -384,7 +395,7 @@ final class AssetWorkflowService
                 ':htype' => $handoverType,
                 ':sender' => (int)$actor['uid'],
                 ':receiver' => !empty($input['receiver_user_id']) ? (int)$input['receiver_user_id'] : null,
-                ':mcid' => !empty($input['member_cache_id']) ? (int)$input['member_cache_id'] : null,
+                ':mcid' => $mcId,
                 ':rname' => substr($receiverName, 0, 150),
                 ':qty' => $qty,
                 ':cond' => $condVal,
