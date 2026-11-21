@@ -290,7 +290,7 @@ final class AssetLifecycleService
 
         $allocs = $pdo->prepare(
             'SELECT al.*, a.asset_code, a.name_en, a.name_am, a.qr_token,
-                    v.variant_code, v.size_label, v.color_label
+                    v.variant_code, v.size_label, v.color_or_style AS color_label
              FROM qa_event_allocations al
              JOIN qa_assets a ON a.id = al.asset_id
              LEFT JOIN qa_asset_variants v ON v.id = al.variant_id
