@@ -163,7 +163,7 @@ assertTrue(AssetService::resolveByQrToken($pdo, $oldQr)['id'] === $assetId, 'Ini
 $updated = AssetService::updateAsset($pdo, $assetId, ['name_am' => 'የመዘምራን ልብስ', 'min_quantity' => 16], $officerActor);
 assertTrue((int)$updated['min_quantity'] === 16, 'Asset metadata updated via updateAsset');
 
-$svg = QrLabelService::renderSvg((string)$updated['qr_token'], (string)$updated['asset_code']);
+$svg = QrLabelService::renderQrSvg((string)$updated['qr_token']);
 assertTrue(str_contains($svg, '<svg'), 'QR SVG rendered');
 $sheetHtml = QrLabelService::renderLabelSheetHtml([$updated], 'CI Sunday School');
 assertTrue(str_contains($sheetHtml, (string)$updated['asset_code']), 'Printable A4 QR label sheet rendered');
@@ -199,26 +199,22 @@ assertTrue($negBlocked, 'Negative stock balance blocked');
 // 9. Private Attachment upload + magic-byte check + audited download
 $tmpPng = tempnam(sys_get_temp_dir(), 'qapng_');
 file_put_contents((string)$tmpPng, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='));
-$att = AssetAttachmentService::upload($pdo, $assetId, [
-    'name' => 'photo.png',
-    'tmp_name' => (string)$tmpPng,
-    'size' => filesize((string)$tmpPng),
-    'error' => UPLOAD_ERR_OK,
+$att = AssetAttachmentService::storeUploadedFile($pdo, (string)$tmpPng, 'photo.png', [
+    'linked_entity_type' => 'asset',
+    'linked_entity_id' => $assetId,
 ], $officerActor);
 assertTrue((int)$att['document_id'] > 0 && $att['mime_type'] === 'image/png', 'Asset attachment uploaded via magic-byte validation');
-$dl = AssetAttachmentService::download($pdo, (int)$att['document_id'], $officerActor);
-assertTrue($dl['mime_type'] === 'image/png' && file_exists($dl['path']), 'Audited attachment download resolves file');
+$dl = AssetAttachmentService::resolveForDownload($pdo, (int)$att['document_id'], $officerActor);
+assertTrue($dl['mime_type'] === 'image/png' && file_exists($dl['full_path']), 'Audited attachment download resolves file');
 @unlink((string)$tmpPng);
 
 $fakePng = tempnam(sys_get_temp_dir(), 'qabad_');
 file_put_contents((string)$fakePng, '<?php echo "hacked";');
 $badBlocked = false;
 try {
-    AssetAttachmentService::upload($pdo, $assetId, [
-        'name' => 'shell.png',
-        'tmp_name' => (string)$fakePng,
-        'size' => filesize((string)$fakePng),
-        'error' => UPLOAD_ERR_OK,
+    AssetAttachmentService::storeUploadedFile($pdo, (string)$fakePng, 'shell.png', [
+        'linked_entity_type' => 'asset',
+        'linked_entity_id' => $assetId,
     ], $officerActor);
 } catch (\DomainException $e) {
     $badBlocked = true;
