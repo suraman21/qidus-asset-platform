@@ -60,6 +60,22 @@ def test_required_phase1_files_exist() -> None:
         "web/pages/finance_dept.php",
         "web/pages/leadership_audit.php",
         ".github/workflows/ci.yml",
+        "mobile/qidus_asset_app/pubspec.yaml",
+        "mobile/qidus_asset_app/android/app/src/main/AndroidManifest.xml",
+        "mobile/qidus_asset_app/android/app/src/main/kotlin/org/qidus/asset/qidus_asset_app/MainActivity.kt",
+        "mobile/qidus_asset_app/lib/main.dart",
+        "mobile/qidus_asset_app/lib/core/config/app_config.dart",
+        "mobile/qidus_asset_app/lib/core/security/keystore_channel.dart",
+        "mobile/qidus_asset_app/lib/core/storage/local_db.dart",
+        "mobile/qidus_asset_app/lib/core/api/api_client.dart",
+        "mobile/qidus_asset_app/lib/core/sync/sync_engine.dart",
+        "mobile/qidus_asset_app/lib/features/auth/login_screen.dart",
+        "mobile/qidus_asset_app/lib/features/home/home_shell.dart",
+        "mobile/qidus_asset_app/lib/features/scan/qr_scan_screen.dart",
+        "mobile/qidus_asset_app/lib/features/handover/handover_screen.dart",
+        "mobile/qidus_asset_app/lib/features/events/rapid_event_screen.dart",
+        "mobile/qidus_asset_app/lib/features/sync/outbox_screen.dart",
+        "mobile/qidus_asset_app/test/outbox_and_keystore_test.dart",
     ]
     missing = [p for p in expected if not (ROOT / p).is_file()]
     assert not missing, f"Missing Phase 1 files: {missing}"
@@ -208,3 +224,19 @@ def test_no_duplicate_named_pdo_parameters_in_queries() -> None:
             params = re.findall(r":([a-zA-Z0-9_]+)", sql)
             dups = [x for x in set(params) if params.count(x) > 1]
             assert not dups, f"Duplicate PDO named params {dups} in {path.relative_to(ROOT)}"
+
+
+def test_mobile_android_keystore_and_offline_contracts() -> None:
+    manifest = read_text("mobile/qidus_asset_app/android/app/src/main/AndroidManifest.xml")
+    assert 'usesCleartextTraffic="false"' in manifest
+    assert "USE_BIOMETRIC" in manifest
+
+    kt = read_text("mobile/qidus_asset_app/android/app/src/main/kotlin/org/qidus/asset/qidus_asset_app/MainActivity.kt")
+    assert "AndroidKeyStore" in kt
+    assert "SHA256withECDSA" in kt
+    assert "secp256r1" in kt
+
+    db_dart = read_text("mobile/qidus_asset_app/lib/core/storage/local_db.dart")
+    assert "local_outbox" in db_dart
+    assert "client_tx_uuid" in db_dart
+    assert "local_event_allocations" in db_dart
