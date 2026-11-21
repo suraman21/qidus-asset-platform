@@ -36,9 +36,9 @@ out/
 **/ios/Flutter/ephemeral/
 
 # Uploads & runtime logs
-uploads/
-storage/
-logs/
+/uploads/
+/storage/
+/logs/
 *.log
 
 # OS & IDE
