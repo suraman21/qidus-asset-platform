@@ -222,8 +222,8 @@ final class AssetAttachmentService
             $linkedType = (string)($row['linked_entity_type'] ?? '');
             $conf = (string)($row['confidentiality'] ?? 'department');
             if (!in_array($linkedType, $assetEntityTypes, true)
-                || $conf === 'leadership_only'
-                || $conf === 'finance_only') {
+                || $conf === 'leadership_finance'
+                || $conf === 'restricted') {
                 throw new DomainException('Access denied for this document scope.');
             }
         }

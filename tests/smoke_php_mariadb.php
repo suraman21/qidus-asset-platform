@@ -406,7 +406,7 @@ assertTrue($badSigBlocked, 'Non-image drawn signature rejected by magic-byte che
 // IDOR check on finance_only document
 $pdo->prepare(
     "INSERT INTO qa_documents (doc_number, department_id, doc_type, title_en, document_date, current_version, approval_status, confidentiality, linked_entity_type, created_by)
-     VALUES (:dn, 2, 'invoice', 'Secret Finance Invoice', CURDATE(), 1, 'APPROVED', 'finance_only', 'finance_tx', :by)"
+     VALUES (:dn, 2, 'invoice', 'Secret Finance Invoice', CURDATE(), 1, 'APPROVED', 'leadership_finance', 'finance_tx', :by)"
 )->execute([':dn' => 'FIN-IDOR-' . $sfx, ':by' => $adminId]);
 $finDocId = (int)$pdo->lastInsertId();
 $pdo->prepare(
