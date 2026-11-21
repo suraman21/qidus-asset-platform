@@ -595,8 +595,32 @@ final class AssetService
         $evStmt->execute([':mcid' => $mcId]);
         $eventTxs = $evStmt->fetchAll();
 
+        $holdingsByAsset = [];
+        foreach ($handovers as $h) {
+            $aid = (int)$h['asset_id'];
+            if (!isset($holdingsByAsset[$aid])) {
+                $holdingsByAsset[$aid] = [
+                    'asset_id' => $aid,
+                    'asset_code' => $h['asset_code'],
+                    'asset_name' => $h['asset_name'],
+                    'net_qty' => 0,
+                ];
+            }
+            $ht = (string)$h['handover_type'];
+            if ($ht === 'issue') {
+                $holdingsByAsset[$aid]['net_qty'] += (int)$h['quantity'];
+            } elseif ($ht === 'return' || $ht === 'partial_return') {
+                $holdingsByAsset[$aid]['net_qty'] -= (int)$h['quantity'];
+            }
+        }
+        $activeHoldings = array_values(array_filter(
+            $holdingsByAsset,
+            static fn(array $row): bool => $row['net_qty'] > 0
+        ));
+
         return [
             'member' => $member,
+            'active_holdings' => $activeHoldings,
             'handovers' => $handovers,
             'event_transactions' => $eventTxs,
         ];

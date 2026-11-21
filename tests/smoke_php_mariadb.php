@@ -115,7 +115,7 @@ $headActor = ['uid' => $headId, 'role' => 'asset_head', 'department_id' => 1, 'd
 $deputyActor = ['uid' => $deputyId, 'role' => 'deputy_chairperson', 'department_id' => 1, 'device_uuid' => null];
 
 $prof = AssetService::upsertMemberAssetProfile($pdo, $extStu1, ['clothing_size' => 'M', 'shoe_size' => '41'], $officerActor);
-assertTrue($prof['clothing_size'] === 'M', 'Member clothing size profile saved');
+assertTrue(($prof['member']['clothing_size'] ?? null) === 'M', 'Member clothing size profile saved');
 
 // 6. RBAC separation of duty check
 $selfApprovalRejected = false;
