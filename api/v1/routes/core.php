@@ -5,6 +5,7 @@ use QidusAsset\Asset\AssetService;
 use QidusAsset\Asset\OperationalYearService;
 use QidusAsset\Connector\ConnectorFactory;
 use QidusAsset\Database\Connection;
+use QidusAsset\Governance\ExecutiveAndAuditService;
 use QidusAsset\Security\AuditLogger;
 use QidusAsset\Security\BiometricVerifier;
 use QidusAsset\Security\JwtService;
@@ -119,6 +120,19 @@ function qaHandleCoreRoute(string $method, array $segments): never
         qaHandleNotificationsRoute($method, array_slice($segments, 1));
     }
 
+    if ($root === 'audit-logs' && ($segments[1] ?? '') === 'export' && $method === 'GET') {
+        $auth = qaRequireAuth('system.audit_read');
+        $csv = ExecutiveAndAuditService::exportAuditLogsCsv(Connection::get(), $_GET, $auth);
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $csv['filename'] . '"');
+        header('X-Content-Type-Options: nosniff');
+        echo $csv['body'];
+        exit;
+    }
+
     if ($root === 'audit-logs' && $method === 'GET') {
         qaRequireAuth('system.audit_read');
         [$page, $limit, $offset] = Response::paginationParams();
@@ -135,6 +149,35 @@ function qaHandleCoreRoute(string $method, array $segments): never
         $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
         $stmt->execute();
         Response::paginated($stmt->fetchAll(), $total, $page, $limit);
+    }
+
+    if ($root === 'executive' && ($segments[1] ?? '') === 'summary' && $method === 'GET') {
+        qaRequireAuth('system.executive_summary');
+        Response::ok(ExecutiveAndAuditService::getExecutiveSummary(Connection::get()));
+    }
+
+    if ($root === 'audit-findings') {
+        $pdo = Connection::get();
+        $sub = array_slice($segments, 1);
+        if ($method === 'GET' && $sub === []) {
+            qaRequireAuth('system.audit_read');
+            Response::ok(['findings' => ExecutiveAndAuditService::listFindings($pdo, $_GET)]);
+        }
+        if ($method === 'POST' && $sub === []) {
+            $auth = qaRequireAuth('system.audit_finding_write');
+            Response::ok(['finding' => ExecutiveAndAuditService::createFinding($pdo, Response::jsonBody(), $auth)], 201);
+        }
+        if ($method === 'POST' && count($sub) === 2 && ctype_digit($sub[0]) && $sub[1] === 'respond') {
+            $auth = qaRequireAuth();
+            if (!Rbac::can($auth['role'], 'asset.write') && !Rbac::can($auth['role'], 'finance.budget_manage') && !Rbac::can($auth['role'], 'system.admin')) {
+                Response::err('Department management permission required to respond.', 403, 'FORBIDDEN');
+            }
+            Response::ok(ExecutiveAndAuditService::respondToFinding($pdo, (int)$sub[0], Response::jsonBody(), $auth));
+        }
+        if ($method === 'POST' && count($sub) === 2 && ctype_digit($sub[0]) && $sub[1] === 'verify') {
+            $auth = qaRequireAuth('system.audit_finding_write');
+            Response::ok(ExecutiveAndAuditService::verifyFinding($pdo, (int)$sub[0], $auth));
+        }
     }
 
     Response::err('Route not found.', 404, 'ROUTE_NOT_FOUND');
@@ -342,6 +385,37 @@ function qaHandleMembersRoute(string $method, array $sub): never
             'tombstones' => $res['tombstones'],
             'next_cursor' => $res['next_cursor'],
             'has_more' => $res['has_more'],
+        ]);
+    }
+
+    if ($method === 'POST' && ($sub[0] ?? '') === 'upsert') {
+        $auth = qaRequireAuth('system.admin');
+        $body = Response::jsonBody();
+        $records = is_array($body['members'] ?? null) ? $body['members'] : [];
+        if ($records === []) {
+            Response::err('members array is required.', 422, 'VALIDATION_ERROR');
+        }
+        $count = $connector->upsertBatch($records, $connector->mode());
+        AuditLogger::log($pdo, [
+            'actor_user_id' => $auth['uid'],
+            'actor_role' => $auth['role'],
+            'action' => 'members.upsert_batch',
+            'entity_type' => 'member_sync',
+            'after' => ['count' => $count],
+        ]);
+        Response::ok(['upserted' => $count]);
+    }
+
+    if ($method === 'POST' && ($sub[0] ?? '') === 'sync-now') {
+        qaRequireAuth('members.sync_read');
+        $body = Response::jsonBody();
+        $cursor = isset($body['since']) ? (string)$body['since'] : null;
+        $res = $connector->syncChanges($cursor, 500);
+        Response::ok([
+            'connector_mode' => $connector->mode(),
+            'synced_items' => count($res['items']),
+            'tombstones' => count($res['tombstones']),
+            'next_cursor' => $res['next_cursor'],
         ]);
     }
 

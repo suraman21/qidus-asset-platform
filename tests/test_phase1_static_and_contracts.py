@@ -41,6 +41,7 @@ def test_required_phase1_files_exist() -> None:
         "backend/src/Finance/BudgetAndLedgerService.php",
         "backend/src/Finance/ProcurementService.php",
         "backend/src/Finance/DocumentVaultService.php",
+        "backend/src/Governance/ExecutiveAndAuditService.php",
         "database/migrations/001_core_identity_departments_years.sql",
         "database/migrations/002_asset_dept_tables.sql",
         "database/migrations/003_finance_procurement_docs_tables.sql",

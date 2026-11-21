@@ -81,3 +81,25 @@ jobs:
           QA_JWT_SECRET: ci_test_jwt_secret_key_for_verification_only
           QA_OFFLINE_LEASE_SECRET: ci_test_offline_lease_secret_for_verification_only
         run: php tests/smoke_php_mariadb.php
+
+  flutter-mobile-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dart/Flutter dependencies
+        working-directory: mobile/qidus_asset_app
+        run: flutter pub get
+
+      - name: Analyze & run Flutter unit tests
+        working-directory: mobile/qidus_asset_app
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test

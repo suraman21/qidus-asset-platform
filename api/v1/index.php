@@ -41,7 +41,7 @@ try {
         qaHandleAuthRoute($method, array_slice($segments, 1));
     }
 
-    $corePrefixes = ['users', 'departments', 'years', 'devices', 'offline-lease', 'members', 'notifications', 'audit-logs', 'system'];
+    $corePrefixes = ['users', 'departments', 'years', 'devices', 'offline-lease', 'members', 'notifications', 'audit-logs', 'audit-findings', 'executive', 'system'];
     if (in_array($segments[0] ?? '', $corePrefixes, true)) {
         qaHandleCoreRoute($method, $segments);
     }

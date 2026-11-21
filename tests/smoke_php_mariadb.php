@@ -18,6 +18,7 @@ use QidusAsset\Database\Connection;
 use QidusAsset\Finance\BudgetAndLedgerService;
 use QidusAsset\Finance\DocumentVaultService;
 use QidusAsset\Finance\ProcurementService;
+use QidusAsset\Governance\ExecutiveAndAuditService;
 use QidusAsset\Security\BiometricVerifier;
 use QidusAsset\Security\JwtService;
 use QidusAsset\Security\PasswordService;
@@ -68,6 +69,10 @@ $deputyId = (int)$pdo->lastInsertId();
 $finHeadUser = 'ci_finhead_' . $sfx;
 $ins->execute([':u' => $finHeadUser, ':n' => 'CI Finance Head', ':r' => 'finance_head', ':d' => 2, ':p' => $passHash]);
 $finHeadId = (int)$pdo->lastInsertId();
+
+$auditorUser = 'ci_auditor_' . $sfx;
+$ins->execute([':u' => $auditorUser, ':n' => 'CI Internal Auditor', ':r' => 'auditor', ':d' => 1, ':p' => $passHash]);
+$auditorId = (int)$pdo->lastInsertId();
 
 assertTrue(PasswordService::verify('TestPass#2026!', $passHash), 'Password verification works');
 
@@ -132,6 +137,7 @@ $officerActor = ['uid' => $officerId, 'role' => 'asset_officer', 'department_id'
 $headActor = ['uid' => $headId, 'role' => 'asset_head', 'department_id' => 1, 'device_uuid' => null];
 $deputyActor = ['uid' => $deputyId, 'role' => 'deputy_chairperson', 'department_id' => 1, 'device_uuid' => null];
 $finHeadActor = ['uid' => $finHeadId, 'role' => 'finance_head', 'department_id' => 2, 'device_uuid' => null];
+$auditorActor = ['uid' => $auditorId, 'role' => 'auditor', 'department_id' => 1, 'device_uuid' => null];
 
 $prof = AssetService::upsertMemberAssetProfile($pdo, $extStu1, ['clothing_size' => 'M', 'shoe_size' => '41'], $officerActor);
 assertTrue(($prof['member']['clothing_size'] ?? null) === 'M', 'Member clothing size profile saved');
@@ -718,7 +724,35 @@ $finRepBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/reports/financ
 $finRepJson = is_string($finRepBody) ? json_decode($finRepBody, true) : null;
 assertTrue(is_array($finRepJson) && ($finRepJson['status'] ?? '') === 'success', 'HTTP GET /api/v1/reports/finance/budget_vs_actual succeeded');
 
+// ============================================================================
+// PHASE 4: Executive Summary, Internal Audit Findings Lifecycle & Audit Export
+// ============================================================================
+$execSummary = ExecutiveAndAuditService::getExecutiveSummary($pdo);
+assertTrue((float)$execSummary['finance_dept']['net_cash_balance_etb'] > 0, 'Executive summary aggregates net cash across depts');
+
+$govFinding = ExecutiveAndAuditService::createFinding($pdo, [
+    'department_id' => 2,
+    'severity' => 'high',
+    'title' => 'Bank statement reference missing on voucher',
+    'description' => 'Ensure voucher numbers match bank slip reference.',
+], $auditorActor);
+$gfId = (int)$govFinding['id'];
+$respF = ExecutiveAndAuditService::respondToFinding($pdo, $gfId, [
+    'management_response' => 'Updated voucher SOP and attached slip.',
+    'status' => 'resolved',
+], $finHeadActor);
+assertTrue($respF['status'] === 'resolved', 'Management resolved audit finding');
+$verF = ExecutiveAndAuditService::verifyFinding($pdo, $gfId, $auditorActor);
+assertTrue($verF['status'] === 'verified', 'Independent auditor verified resolved finding');
+
+$auditCsv = ExecutiveAndAuditService::exportAuditLogsCsv($pdo, [], $auditorActor);
+assertTrue(str_contains($auditCsv['body'], 'audit_finding.verify'), 'Audit trail CSV export contains verified actions');
+
+$execBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/executive/summary", false, $ctxAdminGet);
+$execJson = is_string($execBody) ? json_decode($execBody, true) : null;
+assertTrue(is_array($execJson) && ($execJson['status'] ?? '') === 'success' && isset($execJson['data']['asset_dept'], $execJson['data']['finance_dept']), 'HTTP GET /api/v1/executive/summary succeeded');
+
 proc_terminate($proc);
 proc_close($proc);
 
-echo "ALL PHP + MARIADB + HTTP PHASE 1-3 SMOKE CHECKS PASSED.\n";
+echo "ALL PHP + MARIADB + HTTP PHASE 1-4 SMOKE CHECKS PASSED.\n";
