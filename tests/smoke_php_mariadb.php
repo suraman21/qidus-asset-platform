@@ -181,7 +181,7 @@ $mov = AssetService::recordMovement($pdo, $assetId, [
     'reason' => 'Issued to rehearsal hall',
 ], $officerActor);
 assertTrue($mov['balance_after'] === 15, 'Stock decremented to 15 (<= min_quantity 16)');
-$lowAlerts = (int)$pdo->query("SELECT COUNT(*) FROM qa_notifications WHERE notification_type = 'low_stock' AND entity_id = '{$assetId}'")->fetchColumn();
+$lowAlerts = (int)$pdo->query("SELECT COUNT(*) FROM qa_notifications WHERE type = 'warning' AND entity_type = 'asset' AND entity_id = {$assetId}")->fetchColumn();
 assertTrue($lowAlerts >= 1, 'Low-stock notification emitted automatically');
 
 $negBlocked = false;
