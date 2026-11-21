@@ -166,7 +166,7 @@ $auditFilters = [
 ];
 $auditRows = ExecutiveAndAuditService::searchAuditLogs($pdo, $auditFilters, 25);
 
-qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static function () use (
+qaRenderShell(qaT('page.leadership'), 'leadership', $user, static function () use (
     $role, $flashOk, $flashErr, $exec, $findings, $vaultReady, $migCount, $years, $auditRows, $auditFilters, $devices, $usersList
 ): void {
     ?>
@@ -179,32 +179,32 @@ qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static 
 
     <section class="qa-kpi-grid" aria-label="Cross-Department Executive KPIs">
       <div class="qa-kpi-card">
-        <div class="qa-kpi-label">Asset Valuation (Dept 1)</div>
+        <div class="qa-kpi-label"><?= e(qaT('exec.kpi_asset_val')) ?></div>
         <div class="qa-kpi-value tabular-nums"><?= number_format((float)$exec['asset_dept']['total_valuation_etb'], 2) ?></div>
         <div class="qa-kpi-meta"><?= (int)$exec['asset_dept']['total_assets'] ?> assets · <?= (int)$exec['asset_dept']['low_stock_alerts'] ?> low stock</div>
       </div>
       <div class="qa-kpi-card">
-        <div class="qa-kpi-label">Net Cash Position (Dept 2)</div>
+        <div class="qa-kpi-label"><?= e(qaT('exec.kpi_cash')) ?></div>
         <div class="qa-kpi-value tabular-nums" style="color:var(--accent-success);"><?= number_format((float)$exec['finance_dept']['net_cash_balance_etb'], 2) ?></div>
         <div class="qa-kpi-meta">ETB across active accounts</div>
       </div>
       <div class="qa-kpi-card">
-        <div class="qa-kpi-label">Budget Utilization</div>
+        <div class="qa-kpi-label"><?= e(qaT('exec.kpi_budget')) ?></div>
         <div class="qa-kpi-value tabular-nums" style="color:var(--accent-primary);"><?= number_format((float)$exec['finance_dept']['budget_utilization_pct'], 1) ?>%</div>
         <div class="qa-kpi-meta"><?= number_format((float)$exec['finance_dept']['budget_allocated_etb'], 2) ?> ETB allocated</div>
       </div>
       <div class="qa-kpi-card">
-        <div class="qa-kpi-label">Pending Approvals</div>
+        <div class="qa-kpi-label"><?= e(qaT('exec.kpi_pending')) ?></div>
         <div class="qa-kpi-value tabular-nums" style="color:var(--accent-warning);"><?= (int)$exec['asset_dept']['pending_requests'] + (int)$exec['asset_dept']['pending_disposals'] + (int)$exec['finance_dept']['pending_procurement_requests'] ?></div>
         <div class="qa-kpi-meta">Requests + Disposals + PRs</div>
       </div>
       <div class="qa-kpi-card">
-        <div class="qa-kpi-label">Open Audit Findings</div>
+        <div class="qa-kpi-label"><?= e(qaT('exec.kpi_findings')) ?></div>
         <div class="qa-kpi-value tabular-nums"><?= (int)$exec['governance']['open_findings'] ?></div>
         <div class="qa-kpi-meta"><?= (int)$exec['governance']['high_critical_findings'] ?> high/critical open</div>
       </div>
       <div class="qa-kpi-card">
-        <div class="qa-kpi-label">System Health</div>
+        <div class="qa-kpi-label"><?= e(qaT('exec.kpi_health')) ?></div>
         <div class="qa-kpi-value tabular-nums" style="color:<?= $vaultReady ? 'var(--accent-success)' : 'var(--accent-danger)' ?>;"><?= $vaultReady ? 'OK' : 'WARN' ?></div>
         <div class="qa-kpi-meta"><?= $migCount ?> migrations · <?= e((string)qa_config('integration_mode', 'standalone')) ?></div>
       </div>
@@ -212,7 +212,7 @@ qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static 
 
     <section class="qa-panel-grid">
       <div class="qa-card">
-        <div class="qa-card-header"><h2 class="qa-card-title">Internal Audit Findings (FR-18)</h2><span class="qa-badge warning"><?= count($findings) ?> logged</span></div>
+        <div class="qa-card-header"><h2 class="qa-card-title"><?= e(qaT('exec.findings_title')) ?></h2><span class="qa-badge warning"><?= count($findings) ?> logged</span></div>
         <?php if (Rbac::can($role, 'system.audit_finding_write')): ?>
           <form method="post" style="margin-bottom:14px;">
             <input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>">
@@ -250,7 +250,7 @@ qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static 
       </div>
 
       <div class="qa-card">
-        <div class="qa-card-header"><h2 class="qa-card-title">Member Connector &amp; Operational Years</h2><span class="qa-badge info"><?= (int)$exec['governance']['active_members'] ?> active</span></div>
+        <div class="qa-card-header"><h2 class="qa-card-title"><?= e(qaT('exec.members_years_title')) ?></h2><span class="qa-badge info"><?= (int)$exec['governance']['active_members'] ?> active</span></div>
         <?php if (Rbac::can($role, 'members.sync_read')): ?>
           <form method="post" style="margin-bottom:14px;">
             <input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>">
@@ -275,7 +275,7 @@ qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static 
 
     <section class="qa-panel-grid" style="margin-top:18px;">
       <div class="qa-card">
-        <div class="qa-card-header"><h2 class="qa-card-title">Registered Android Devices (Keystore)</h2><span class="qa-badge info"><?= (int)$exec['governance']['active_devices'] ?> active / <?= (int)$exec['governance']['pending_devices'] ?> pending</span></div>
+        <div class="qa-card-header"><h2 class="qa-card-title"><?= e(qaT('exec.devices_title')) ?></h2><span class="qa-badge info"><?= (int)$exec['governance']['active_devices'] ?> active / <?= (int)$exec['governance']['pending_devices'] ?> pending</span></div>
         <?php if ($devices === []): ?>
           <p style="color:var(--text-secondary);margin:0;">No mobile device keys enrolled yet.</p>
         <?php else: ?>
@@ -301,7 +301,7 @@ qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static 
 
       <?php if (Rbac::can($role, 'system.admin')): ?>
       <div class="qa-card">
-        <div class="qa-card-header"><h2 class="qa-card-title">Staff Directory &amp; Provisioning</h2><span class="qa-badge">RBAC</span></div>
+        <div class="qa-card-header"><h2 class="qa-card-title"><?= e(qaT('exec.staff_title')) ?></h2><span class="qa-badge">RBAC</span></div>
         <form method="post" style="margin-bottom:12px;">
           <input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>">
           <input type="hidden" name="user_action" value="create_user">
@@ -333,7 +333,7 @@ qaRenderShell('Executive Overview & Audit Console', 'leadership', $user, static 
 
     <section class="qa-card" style="margin-top:18px;">
       <div class="qa-card-header" style="flex-wrap:wrap;gap:10px;">
-        <h2 class="qa-card-title">Audit Trail Explorer</h2>
+        <h2 class="qa-card-title"><?= e(qaT('exec.audit_title')) ?></h2>
         <form method="get" style="display:flex;gap:6px;flex-wrap:wrap;">
           <input type="hidden" name="page" value="leadership">
           <input name="audit_action" value="<?= e((string)$auditFilters['action']) ?>" class="qa-input" placeholder="Filter action (e.g. login)" style="width:180px;">

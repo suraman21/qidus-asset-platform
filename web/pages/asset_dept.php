@@ -366,7 +366,7 @@ if (!in_array($selectedReport, AssetReportService::SUPPORTED_REPORTS, true)) {
 }
 $reportData = $tab === 'reports' ? AssetReportService::generate($pdo, $selectedReport, $reportFilters) : null;
 
-qaRenderShell('Asset Department', 'asset', $user, static function () use (
+qaRenderShell(qaT('page.asset'), 'asset', $user, static function () use (
     $user, $role, $tab, $flashOk, $flashErr,
     $fixedCount, $stockSkuCount, $lowStockCount, $activeHandovers, $openRequests, $openMaint,
     $categories, $locations, $assets, $allAssets, $attachments, $searchQ, $filterCat, $filterLoc, $filterStatus,

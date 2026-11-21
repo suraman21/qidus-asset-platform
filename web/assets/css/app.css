@@ -24,7 +24,7 @@ a:hover { text-decoration: underline; }
 }
 
 .qa-sidebar {
-  width: 260px;
+  width: 280px;
   flex-shrink: 0;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-subtle);
@@ -34,6 +34,7 @@ a:hover { text-decoration: underline; }
   position: sticky;
   top: 0;
   height: 100vh;
+  overflow-y: auto;
   z-index: 40;
   transition: transform 0.2s ease;
 }
@@ -83,8 +84,14 @@ a:hover { text-decoration: underline; }
   border-radius: 10px;
   color: var(--text-secondary);
   font-weight: 500;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
   transition: background 0.15s ease, color 0.15s ease;
+}
+.qa-nav-link > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .qa-nav-link:hover {
   background: var(--bg-input);
@@ -260,8 +267,36 @@ a:hover { text-decoration: underline; }
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
   border: 1px solid var(--border-subtle);
   background: var(--bg-input);
+}
+
+.qa-lang-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  gap: 2px;
+}
+.qa-lang-pill {
+  padding: 5px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.qa-lang-pill:hover {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.qa-lang-pill.active {
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  color: #ffffff;
 }
 .qa-badge.success { color: var(--accent-success); border-color: rgba(16, 185, 129, 0.35); }
 .qa-badge.warning { color: var(--accent-warning); border-color: rgba(245, 158, 11, 0.35); }

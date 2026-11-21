@@ -3,11 +3,22 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/backend/config/bootstrap.php';
 require_once __DIR__ . '/core/web_auth.php';
+require_once __DIR__ . '/core/i18n.php';
 require_once __DIR__ . '/layouts/shell.php';
 
+use QidusAsset\Database\Connection;
 use QidusAsset\Security\Rbac;
 
 qaWebBootSession();
+
+if (isset($_GET['set_lang']) && in_array($_GET['set_lang'], ['am', 'en'], true)) {
+    qaSetLang((string)$_GET['set_lang']);
+    $params = $_GET;
+    unset($params['set_lang']);
+    $qs = http_build_query($params);
+    header('Location: index.php' . ($qs !== '' ? '?' . $qs : ''));
+    exit;
+}
 
 $action = (string)($_GET['action'] ?? '');
 $user = qaWebCurrentUser();
@@ -17,8 +28,10 @@ if ($action === 'logout' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         http_response_code(403);
         exit('Invalid CSRF token.');
     }
+    $lang = qaLang();
     $_SESSION = [];
     session_destroy();
+    qaSetLang($lang);
     header('Location: index.php?page=login');
     exit;
 }
@@ -38,8 +51,14 @@ if ($action === 'switch_role' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $loginError = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($action === 'login' || ($_POST['action'] ?? '') === 'login')) {
+    if ($user) {
+        header('Location: index.php?page=' . urlencode(qaWebDefaultPageForRole((string)$user['role'])));
+        exit;
+    }
     if (!qaVerifyCsrf($_POST['csrf'] ?? null)) {
-        $loginError = 'Session expired. Please refresh and try again.';
+        $loginError = qaLang() === 'am'
+            ? 'የክፍለ ጊዜው ማረጋገጫ ጊዜው አልፏል። እባክዎ ገጹን አድሰው እንደገና ይሞክሩ።'
+            : 'Session expired. Please refresh and try again.';
     } else {
         $res = qaWebAttemptLogin((string)($_POST['username'] ?? ''), (string)($_POST['password'] ?? ''));
         if ($res['ok']) {
@@ -52,7 +71,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($action === 'login' || ($_POST['ac
 }
 
 if (!$user) {
-    if (($_GET['page'] ?? '') === 'setup') {
+    $requestedPage = (string)($_GET['page'] ?? '');
+    if ($requestedPage !== 'setup') {
+        try {
+            $cnt = (int)Connection::get()->query('SELECT COUNT(*) FROM qa_users')->fetchColumn();
+            if ($cnt === 0) {
+                header('Location: index.php?page=setup');
+                exit;
+            }
+        } catch (\Throwable $e) {
+            // Fall through to login if DB check fails
+        }
+    }
+    if ($requestedPage === 'setup') {
         require __DIR__ . '/pages/setup.php';
         exit;
     }
@@ -62,6 +93,11 @@ if (!$user) {
 
 $page = (string)($_GET['page'] ?? qaWebDefaultPageForRole((string)$user['role']));
 $role = (string)$user['role'];
+
+if ($page === 'profile') {
+    require __DIR__ . '/pages/profile.php';
+    exit;
+}
 
 if ($page === 'asset') {
     if (!Rbac::can($role, 'asset.read')) {

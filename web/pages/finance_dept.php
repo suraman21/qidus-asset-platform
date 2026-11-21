@@ -288,7 +288,7 @@ if (!in_array($selFinRep, BudgetAndLedgerService::SUPPORTED_REPORTS, true)) {
 }
 $finRepData = $tab === 'documents' && Rbac::can($role, 'finance.read') ? BudgetAndLedgerService::generateReport($pdo, $selFinRep) : null;
 
-qaRenderShell('Finance, Procurement & Document Vault', 'finance', $user, static function () use (
+qaRenderShell(qaT('page.finance'), 'finance', $user, static function () use (
     $role, $tab, $flashOk, $flashErr,
     $budgetTotal, $incomeTotal, $expenseTotal, $openPrCount, $docCount, $unmatchedBank,
     $accounts, $finCategories, $budgets, $amendments, $recentLedger, $reconciliations, $stmtLines,

@@ -16,7 +16,9 @@
     localStorage.setItem(STORAGE_KEY, theme);
     var btn = document.getElementById('qaThemeToggle');
     if (btn) {
-      btn.textContent = theme === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode';
+      var lightLabel = btn.getAttribute('data-label-light') || '☀️ Light Mode';
+      var darkLabel = btn.getAttribute('data-label-dark') || '🌙 Dark Mode';
+      btn.textContent = theme === 'dark' ? lightLabel : darkLabel;
       btn.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
     }
   }

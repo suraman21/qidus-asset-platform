@@ -54,26 +54,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$schoolName = (string)qa_config('school_name_en', 'QIDUS ASSET');
+$lang = qaLang();
+$schoolName = qaSchoolTitle();
 ?>
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="<?= e($lang) ?>" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>First-Run Setup · <?= e($schoolName) ?></title>
+  <title><?= e(qaT('setup.title')) ?> · <?= e($schoolName) ?></title>
   <link rel="stylesheet" href="assets/css/theme.css">
   <link rel="stylesheet" href="assets/css/app.css">
 </head>
 <body>
   <div class="qa-auth-wrap">
-    <div class="qa-auth-card" style="max-width:500px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div class="qa-auth-card" style="max-width:520px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
         <div>
-          <div class="qa-brand-title">QIDUS ASSET — First-Run Setup</div>
-          <div class="qa-brand-sub">Configure school instance &amp; initial System Admin</div>
+          <div class="qa-brand-title"><?= e(qaT('setup.title')) ?></div>
+          <div class="qa-brand-sub"><?= e(qaT('setup.subtitle')) ?></div>
         </div>
-        <button id="qaThemeToggle" type="button" class="qa-btn">☀️ Light Mode</button>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="qa-lang-switch" role="group" aria-label="Language switcher">
+            <a class="qa-lang-pill <?= $lang === 'am' ? 'active' : '' ?>" href="<?= e(qaLangSwitchUrl('am')) ?>">አማ</a>
+            <a class="qa-lang-pill <?= $lang === 'en' ? 'active' : '' ?>" href="<?= e(qaLangSwitchUrl('en')) ?>">EN</a>
+          </div>
+          <button id="qaThemeToggle"
+                  type="button"
+                  class="qa-btn"
+                  data-label-light="<?= e(qaT('topbar.light_mode')) ?>"
+                  data-label-dark="<?= e(qaT('topbar.dark_mode')) ?>"><?= e(qaT('topbar.light_mode')) ?></button>
+        </div>
       </div>
 
       <?php if ($setupErr !== ''): ?>
@@ -85,15 +96,15 @@ $schoolName = (string)qa_config('school_name_en', 'QIDUS ASSET');
       <form method="post" action="index.php?page=setup">
         <input type="hidden" name="csrf" value="<?= e(qaCsrfToken()) ?>">
         <div class="qa-field">
-          <label for="sEn">School Name (English)</label>
+          <label for="sEn"><?= e(qaT('setup.school_en')) ?></label>
           <input id="sEn" name="school_name_en" class="qa-input" required value="Sunday School">
         </div>
         <div class="qa-field">
-          <label for="sAm">School Name (Amharic)</label>
+          <label for="sAm"><?= e(qaT('setup.school_am')) ?></label>
           <input id="sAm" name="school_name_am" class="qa-input" value="ሰንበት ትምህርት ቤት">
         </div>
         <div class="qa-field">
-          <label for="sMode">Member Connector Mode</label>
+          <label for="sMode"><?= e(qaT('setup.mode')) ?></label>
           <select id="sMode" name="integration_mode" class="qa-select" style="width:100%;">
             <option value="standalone">Standalone (Independent Directory)</option>
             <option value="ssms_http">SSMS HTTP Connector</option>
@@ -101,18 +112,18 @@ $schoolName = (string)qa_config('school_name_en', 'QIDUS ASSET');
           </select>
         </div>
         <div class="qa-field">
-          <label for="aUser">Initial System Admin Username</label>
+          <label for="aUser"><?= e(qaT('setup.admin_user')) ?></label>
           <input id="aUser" name="username" class="qa-input" required placeholder="sysadmin">
         </div>
         <div class="qa-field">
-          <label for="aName">Full Name</label>
+          <label for="aName"><?= e(qaT('setup.admin_name')) ?></label>
           <input id="aName" name="full_name" class="qa-input" required placeholder="Administrator">
         </div>
         <div class="qa-field">
-          <label for="aPass">Password (min 8 characters)</label>
+          <label for="aPass"><?= e(qaT('setup.admin_pass')) ?></label>
           <input id="aPass" name="password" type="password" minlength="8" class="qa-input" required>
         </div>
-        <button type="submit" class="qa-btn qa-btn-primary" style="width:100%;">Complete Initial Setup</button>
+        <button type="submit" class="qa-btn qa-btn-primary" style="width:100%;"><?= e(qaT('setup.submit')) ?></button>
       </form>
     </div>
   </div>
