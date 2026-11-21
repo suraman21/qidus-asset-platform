@@ -231,7 +231,7 @@ $req = AssetWorkflowService::createRequest($pdo, [
 ], $officerActor);
 $reqId = (int)$req['id'];
 
-$ret = AssetWorkflowService::departmentHeadDecision($pdo, $reqId, 'return_for_correction', 'Add event date', $headActor);
+$ret = AssetWorkflowService::departmentHeadDecision($pdo, $reqId, 'return', 'Add event date', $headActor);
 assertTrue($ret['status'] === 'RETURNED_FOR_CORRECTION', 'Request returned for correction');
 $resub = AssetWorkflowService::resubmitRequest($pdo, $reqId, ['reason' => 'Sunday Meskel Liturgy'], $officerActor);
 assertTrue($resub['status'] === 'PENDING_DEPARTMENT_HEAD', 'Request resubmitted cleanly');
@@ -293,7 +293,7 @@ assertTrue(count($overdueList) >= 1, 'Overdue handover detected');
 // 11. Event Template + Participant Filter + Conflict Resolution + Event Close
 $tpl = AssetLifecycleService::createEventTemplate($pdo, [
     'name_en' => 'Choir Uniform Kit',
-    'items' => [['asset_id' => $assetId, 'qty' => 1]],
+    'default_items' => [['asset_id' => $assetId, 'qty' => 1]],
 ], $headActor);
 assertTrue((int)$tpl['id'] > 0, 'Event template created');
 
@@ -306,7 +306,7 @@ $evId = (int)$ev['id'];
 $stId = (int)$pdo->query("SELECT id FROM qa_event_stations WHERE event_id = {$evId} LIMIT 1")->fetchColumn();
 AssetLifecycleService::allocateStationStock($pdo, $evId, $stId, $assetId, 1);
 $prep = AssetLifecycleService::prepareEventParticipants($pdo, $evId, ['section_name' => 'Grade 5']);
-assertTrue($prep['participants_added'] >= 1, 'Event participants prepared via filter');
+assertTrue($prep['participants_prepared'] >= 1, 'Event participants prepared via filter');
 
 $memberId = (int)$pdo->query("SELECT id FROM qa_member_sync_cache WHERE external_member_id = '{$extStu1}' LIMIT 1")->fetchColumn();
 $batchRes = AssetLifecycleService::syncEventBatch($pdo, $evId, [
@@ -314,7 +314,7 @@ $batchRes = AssetLifecycleService::syncEventBatch($pdo, $evId, [
 ], $officerActor);
 assertTrue($batchRes['accepted'] === 1 && $batchRes['conflicts'] === 1, 'Over-allocated offline event tx flagged as conflict instead of lost');
 
-$txConflictId = (int)$pdo->query("SELECT id FROM qa_event_transactions WHERE event_id = {$evId} AND conflict_flag = 1 LIMIT 1")->fetchColumn();
+$txConflictId = (int)$pdo->query("SELECT id FROM qa_event_transactions WHERE event_id = {$evId} AND conflict_status = 'needs_review' LIMIT 1")->fetchColumn();
 AssetLifecycleService::resolveEventConflict($pdo, $evId, $txConflictId, 'Approved overage by Head', $headActor);
 $closedEv = AssetLifecycleService::closeEvent($pdo, $evId, $headActor);
 assertTrue($closedEv['status'] === 'closed', 'Event closed after resolving conflicts');
@@ -387,10 +387,30 @@ $pdo->prepare("UPDATE qa_operational_years SET status = 'planned' WHERE id = :id
 // 15. Real HTTP Route Dispatch Test via built-in PHP server
 $port = 18089;
 $docRoot = dirname(__DIR__);
-$cmd = sprintf('php -S 127.0.0.1:%d -t %s', $port, escapeshellarg($docRoot));
+$router = $docRoot . '/api/v1/index.php';
+$cmd = sprintf('php -S 127.0.0.1:%d -t %s %s', $port, escapeshellarg($docRoot), escapeshellarg($router));
 $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 assertTrue(is_resource($proc), 'Started PHP built-in test server');
 usleep(400000);
+
+$adminJwt = JwtService::issueAccessToken([
+    'uid' => $adminId,
+    'usr' => $adminUser,
+    'rol' => 'system_admin',
+    'nam' => 'CI Admin',
+    'av' => 1,
+]);
+$ctxAdminGet = stream_context_create([
+    'http' => [
+        'method' => 'GET',
+        'header' => "Authorization: Bearer {$adminJwt}\r\nAccept: application/json\r\n",
+        'ignore_errors' => true,
+        'timeout' => 5,
+    ],
+]);
+$healthBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/system/health", false, $ctxAdminGet);
+$healthJson = is_string($healthBody) ? json_decode($healthBody, true) : null;
+assertTrue(is_array($healthJson) && !empty($healthJson['ok']) && !empty($healthJson['data']['db_connected']), 'HTTP GET /api/v1/system/health succeeded');
 
 $ctxGet = stream_context_create([
     'http' => [
@@ -400,10 +420,6 @@ $ctxGet = stream_context_create([
         'timeout' => 5,
     ],
 ]);
-$healthBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/system/health", false, $ctxGet);
-$healthJson = is_string($healthBody) ? json_decode($healthBody, true) : null;
-assertTrue(is_array($healthJson) && !empty($healthJson['ok']) && $healthJson['data']['db'] === 'ok', 'HTTP GET /api/v1/system/health succeeded');
-
 $assetsBody = @file_get_contents("http://127.0.0.1:{$port}/api/v1/assets", false, $ctxGet);
 $assetsJson = is_string($assetsBody) ? json_decode($assetsBody, true) : null;
 assertTrue(is_array($assetsJson) && !empty($assetsJson['ok']), 'HTTP GET /api/v1/assets succeeded');
